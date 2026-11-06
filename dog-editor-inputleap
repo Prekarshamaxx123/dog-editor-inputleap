@@ -1,0 +1,51 @@
+#!/bin/bash
+# dog-editor-inputleap launcher
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+BIN_DIR="$SCRIPT_DIR/build/bin"
+
+if [ ! -d "$BIN_DIR" ] && [ -d "$SCRIPT_DIR/bin" ]; then
+    BIN_DIR="$SCRIPT_DIR/bin"
+fi
+
+case "$1" in
+    client)
+        shift
+        exec "$BIN_DIR/input-leapc" "$@"
+        ;;
+    server)
+        shift
+        exec "$BIN_DIR/input-leaps" "$@"
+        ;;
+    tests|test)
+        shift
+        exec "$BIN_DIR/unittests" "$@"
+        ;;
+    integtests)
+        shift
+        exec "$BIN_DIR/integtests" "$@"
+        ;;
+    *)
+        if [ "$#" -eq 0 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+            echo "dog-editor-inputleap - Mouse, Keyboard, Clipboard & Drag-and-Drop File Sharing Tool"
+            echo ""
+            echo "Usage: dog-editor-inputleap [server|client|test|integtests] [options]"
+            echo ""
+            echo "Commands:"
+            echo "  server       Run the server (shares local mouse, keyboard, clipboard & files)"
+            echo "  client       Run the client (connects to remote server)"
+            echo "  test         Run unit tests"
+            echo "  integtests   Run network & file transfer integration tests"
+            echo ""
+            echo "Direct server options:"
+            exec "$BIN_DIR/input-leaps" --help
+        else
+            exec "$BIN_DIR/input-leaps" "$@"
+        fi
+        ;;
+esac

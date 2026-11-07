@@ -118,9 +118,15 @@ int main(int argc, char* argv[])
 
 	QSettings settings;
     if (settings.allKeys().empty()) {
-        // if there are no settings, attempt to copy from old Barrier settings location
-        QSettings fallback_settings{"Debauchee", "Barrier"};
-        copy_qsettings(fallback_settings, settings);
+        QString flatpakConfig = QDir::homePath() + "/.var/app/io.github.input_leap.input-leap/config/InputLeap/InputLeap.conf";
+        if (QFile::exists(flatpakConfig)) {
+            QSettings flatpakSettings(flatpakConfig, QSettings::IniFormat);
+            copy_qsettings(flatpakSettings, settings);
+        } else {
+            // if there are no settings, attempt to copy from old Barrier settings location
+            QSettings fallback_settings{"Debauchee", "Barrier"};
+            copy_qsettings(fallback_settings, settings);
+        }
     }
 
 	AppConfig appConfig (&settings);

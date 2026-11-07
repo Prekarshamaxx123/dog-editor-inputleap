@@ -1311,7 +1311,7 @@ void MainWindow::downloadBonjour()
 
     if (m_DownloadMessageBox == nullptr) {
         m_DownloadMessageBox = new QMessageBox(this);
-        m_DownloadMessageBox->setWindowTitle("InputLeap");
+        m_DownloadMessageBox->setWindowTitle("dog-editor-inputleap");
         m_DownloadMessageBox->setIcon(QMessageBox::Information);
         m_DownloadMessageBox->setText("Installing Bonjour, please wait...");
 #if QT_VERSION_MAJOR < 6

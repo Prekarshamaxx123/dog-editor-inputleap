@@ -1,5 +1,5 @@
 #!/bin/bash
-# dog-editor-inputleap launcher
+# dog-editor-inputleap unified launcher
 SOURCE="${BASH_SOURCE[0]}"
 while [ -h "$SOURCE" ]; do
     DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
@@ -13,7 +13,13 @@ if [ ! -d "$BIN_DIR" ] && [ -d "$SCRIPT_DIR/bin" ]; then
     BIN_DIR="$SCRIPT_DIR/bin"
 fi
 
+export LD_LIBRARY_PATH="$BIN_DIR:/tmp/avahi-dev/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+
 case "$1" in
+    gui|"")
+        if [ "$1" = "gui" ]; then shift; fi
+        exec "$BIN_DIR/input-leap" "$@"
+        ;;
     client)
         shift
         exec "$BIN_DIR/input-leapc" "$@"
@@ -26,26 +32,28 @@ case "$1" in
         shift
         exec "$BIN_DIR/unittests" "$@"
         ;;
+    guiunittests)
+        shift
+        exec "$BIN_DIR/guiunittests" "$@"
+        ;;
     integtests)
         shift
         exec "$BIN_DIR/integtests" "$@"
         ;;
+    --help|-h)
+        echo "dog-editor-inputleap - Mouse, Keyboard, Clipboard & Drag-and-Drop File Sharing Tool"
+        echo ""
+        echo "Usage: dog-editor-inputleap [gui|server|client|test|integtests] [options]"
+        echo ""
+        echo "Commands:"
+        echo "  (no args) / gui  Launch the full Graphical User Interface (GUI)"
+        echo "  server           Run the server directly via CLI"
+        echo "  client           Run the client directly via CLI"
+        echo "  test             Run unit tests"
+        echo "  integtests       Run integration tests"
+        exit 0
+        ;;
     *)
-        if [ "$#" -eq 0 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-            echo "dog-editor-inputleap - Mouse, Keyboard, Clipboard & Drag-and-Drop File Sharing Tool"
-            echo ""
-            echo "Usage: dog-editor-inputleap [server|client|test|integtests] [options]"
-            echo ""
-            echo "Commands:"
-            echo "  server       Run the server (shares local mouse, keyboard, clipboard & files)"
-            echo "  client       Run the client (connects to remote server)"
-            echo "  test         Run unit tests"
-            echo "  integtests   Run network & file transfer integration tests"
-            echo ""
-            echo "Direct server options:"
-            exec "$BIN_DIR/input-leaps" --help
-        else
-            exec "$BIN_DIR/input-leaps" "$@"
-        fi
+        exec "$BIN_DIR/input-leap" "$@"
         ;;
 esac

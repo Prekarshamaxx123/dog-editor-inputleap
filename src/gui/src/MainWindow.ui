@@ -9,7 +9,7 @@
    </sizepolicy>
   </property>
   <property name="windowTitle">
-   <string>InputLeap</string>
+   <string>dog-editor-inputleap</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout_2">

@@ -218,7 +218,17 @@ if (BUILD_CARBON)
     target_link_libraries(input-leap ${APPSERVICES_LIB})
 endif()
 if (BUILD_XWINDOWS OR BUILD_LIBEI)
+    if (EXISTS "/tmp/avahi-dev/usr/lib/x86_64-linux-gnu")
+        target_link_directories(input-leap PRIVATE "/tmp/avahi-dev/usr/lib/x86_64-linux-gnu")
+    endif()
     target_link_libraries (input-leap dns_sd Threads::Threads)
+    set_target_properties(input-leap PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib:/tmp/avahi-dev/usr/lib/x86_64-linux-gnu"
+    )
+    add_custom_command(TARGET input-leap POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink input-leap "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap"
+    )
 endif()
 
 target_link_libraries (input-leap common)

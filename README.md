@@ -17,23 +17,37 @@
 
 ## 🚀 Quick Start
 
-### 1. Build from Source
-
-To compile **dog-editor-inputleap** on Linux:
-
+### 1. Launch the Full Graphical Interface (GUI)
+Run `dog-editor-inputleap` directly to open the desktop GUI:
 ```bash
-git clone https://github.com/Prekarshamaxx123/dog-editor-inputleap.git
-cd dog-editor-inputleap
-./build.sh
+./dog-editor-inputleap
+```
+Or if installed to `~/.local/bin`:
+```bash
+dog-editor-inputleap
 ```
 
-The compiled binaries will be generated in `build/bin/`:
-- `input-leaps` (Server)
-- `input-leapc` (Client)
-- `dog-editor-inputleap` (Unified Tool Launcher)
-- `unittests` & `integtests` (Testing suites)
+---
+
+## 📦 Download Pre-built Binaries (GitHub Releases)
+
+Ready-to-run binaries are available for all major operating systems on [GitHub Releases](https://github.com/Prekarshamaxx123/dog-editor-inputleap/releases):
+
+| OS | Package | Description |
+|---|---|---|
+| **Linux (x86_64)** | `dog-editor-inputleap-v3.0.3-full-gui-linux-x86_64.tar.gz` | Full Qt GUI + Server + Client |
+| **Linux (Server)** | `dog-editor-inputleap-v3.0.3-server-linux-x86_64.tar.gz` | Standalone Linux Server Daemon |
+| **Linux (Client)** | `dog-editor-inputleap-v3.0.3-client-linux-x86_64.tar.gz` | Standalone Linux Client Daemon |
+| **Windows (x64)** | `dog-editor-inputleap-v3.0.3-full-windows-x64.zip` | Full Windows Bundle (Server & Client) |
+| **Windows (Server)** | `dog-editor-inputleap-v3.0.3-server-windows-x64.zip` | Standalone Windows Server Executable |
+| **Windows (Client)** | `dog-editor-inputleap-v3.0.3-client-windows-x64.zip` | Standalone Windows Client Executable |
+| **macOS (Apple Silicon)** | `dog-editor-inputleap-v3.0.3-macos-AppleSilicon.dmg` | DMG Installer (M1/M2/M3/M4) |
+| **macOS (Intel)** | `dog-editor-inputleap-v3.0.3-macos-Intel-x86_64.dmg` | DMG Installer (Intel x86_64) |
+| **macOS (Server/Client)** | `dog-editor-inputleap-v3.0.3-server-macos-*.zip` | Standalone CLI Server / Client |
 
 ---
+
+## 🛠️ Build from Source
 
 ## 📖 Usage
 

@@ -18,7 +18,9 @@
 set(sources input-leapd.cpp)
 if (WIN32)
     list(APPEND sources input-leapd.rc)
-    set_property(SOURCE input-leapd.rc PROPERTY COMPILE_FLAGS /nologo)
+    if (MSVC)
+        set_property(SOURCE input-leapd.rc PROPERTY COMPILE_FLAGS /nologo)
+    endif()
 endif()
 
 add_executable (input-leapd WIN32 ${sources})

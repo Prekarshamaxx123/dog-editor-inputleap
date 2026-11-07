@@ -25,7 +25,9 @@ if (BUILD_MSWINDOWS)
         input-leaps.exe.manifest
         input-leaps.rc
     )
-    set_property(SOURCE input-leaps.rc PROPERTY COMPILE_FLAGS /nologo)
+    if (MSVC)
+        set_property(SOURCE input-leaps.rc PROPERTY COMPILE_FLAGS /nologo)
+    endif()
 endif()
 if (BUILD_CARBON)
     file(GLOB carbon_headers "OSX*.h")
@@ -48,12 +50,20 @@ if(INPUTLEAP_ADD_HEADERS)
 endif()
 
 add_executable(input-leaps ${sources})
-target_link_libraries(input-leaps
-    arch base client common io mt net ipc platform server synlib ${libs} OpenSSL::SSL OpenSSL::Crypto)
-
-add_custom_command(TARGET input-leaps POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E create_symlink input-leaps "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap"
-)
+if (MINGW)
+    target_link_libraries(input-leaps
+        -Wl,--start-group arch base client common io mt net ipc platform server synlib -Wl,--end-group
+        ${libs} OpenSSL::SSL OpenSSL::Crypto)
+    add_custom_command(TARGET input-leaps POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input-leaps.exe" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap.exe"
+    )
+else()
+    target_link_libraries(input-leaps
+        arch base client common io mt net ipc platform server synlib ${libs} OpenSSL::SSL OpenSSL::Crypto)
+    add_custom_command(TARGET input-leaps POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink input-leaps "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap"
+    )
+endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     install(TARGETS input-leaps DESTINATION ${INPUTLEAP_BUNDLE_BINARY_DIR})

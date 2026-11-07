@@ -25,7 +25,9 @@ if (BUILD_MSWINDOWS)
         input-leapc.exe.manifest
         input-leapc.rc
     )
-    set_property(SOURCE input-leapc.rc PROPERTY COMPILE_FLAGS /nologo)
+    if (MSVC)
+        set_property(SOURCE input-leapc.rc PROPERTY COMPILE_FLAGS /nologo)
+    endif()
 endif()
 if (BUILD_CARBON)
     file(GLOB carbon_headers "OSX*.h")
@@ -48,8 +50,14 @@ if(INPUTLEAP_ADD_HEADERS)
 endif()
 
 add_executable(input-leapc ${sources})
-target_link_libraries(input-leapc
-    arch base client common io mt net ipc platform server synlib ${libs} OpenSSL::SSL OpenSSL::Crypto)
+if (MINGW)
+    target_link_libraries(input-leapc
+        -Wl,--start-group arch base client common io mt net ipc platform server synlib -Wl,--end-group
+        ${libs} OpenSSL::SSL OpenSSL::Crypto)
+else()
+    target_link_libraries(input-leapc
+        arch base client common io mt net ipc platform server synlib ${libs} OpenSSL::SSL OpenSSL::Crypto)
+endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     install(TARGETS input-leapc DESTINATION ${INPUTLEAP_BUNDLE_BINARY_DIR})

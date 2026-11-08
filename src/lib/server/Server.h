@@ -474,6 +474,7 @@ private:
     Thread* m_sendFileThread;
     Thread* m_writeToDropDirThread;
     std::string m_dragFileExt;
+    std::string m_lastSentClipboardFile;
     bool m_ignoreFileTransfer;
     bool m_enableClipboard;
     size_t m_maximumClipboardSize;

@@ -7,6 +7,8 @@ echo "Building dog-editor-inputleap with full GUI in $PROJECT_DIR..."
 flatpak run --user --filesystem=/home/kali/Projects/inputleap --filesystem=/tmp --command=bash org.kde.Sdk//6.10 -c "
     cd '$PROJECT_DIR'
     export PKG_CONFIG_PATH=/tmp/avahi-dev/usr/lib/x86_64-linux-gnu/pkgconfig:\$PKG_CONFIG_PATH
+    export CPLUS_INCLUDE_PATH=/tmp/avahi-dev/usr/include:/tmp/avahi-dev/usr/include/avahi-compat-libdns_sd:\$CPLUS_INCLUDE_PATH
+    export LIBRARY_PATH=/tmp/avahi-dev/usr/lib/x86_64-linux-gnu:\$LIBRARY_PATH
     cmake -B build -DINPUTLEAP_BUILD_GUI=ON -DINPUTLEAP_BUILD_TESTS=ON
     cmake --build build -j\$(nproc)
 "

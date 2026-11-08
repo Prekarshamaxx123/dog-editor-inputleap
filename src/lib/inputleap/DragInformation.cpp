@@ -17,6 +17,7 @@
 
 #include "inputleap/DragInformation.h"
 #include "base/Log.h"
+#include "io/filesystem.h"
 
 #include <fstream>
 #include <sstream>
@@ -94,9 +95,11 @@ DragInformation::setupDragInfo(DragFileList& fileList, std::string& output)
 {
     int size = static_cast<int>(fileList.size());
     for (int i = 0; i < size; ++i) {
-        output.append(fileList.at(i).getFilename());
+        std::string path = fileList.at(i).getFilename();
+        std::string base = inputleap::fs::u8path(path).filename().u8string();
+        output.append(base);
         output.append(",");
-        std::string filesize = getFileSize(fileList.at(i).getFilename());
+        std::string filesize = getFileSize(path);
         output.append(filesize);
         output.append(",");
     }
@@ -127,22 +130,21 @@ size_t DragInformation::stringToNum(std::string& str)
 
 std::string DragInformation::getFileSize(std::string& filename)
 {
-    std::fstream file(filename.c_str(), std::ios::in|std::ios::binary);
-
-    if (!file.is_open()) {
-      throw std::runtime_error("failed to get file size");
+    std::error_code ec;
+    auto sz = inputleap::fs::file_size(inputleap::fs::u8path(filename), ec);
+    if (!ec) {
+        return std::to_string(sz);
     }
 
-    // check file size
-    file.seekg (0, std::ios::end);
-    size_t size = static_cast<size_t>(file.tellg());
+    std::fstream file(filename.c_str(), std::ios::in | std::ios::binary);
+    if (file.is_open()) {
+        file.seekg(0, std::ios::end);
+        size_t size = static_cast<size_t>(file.tellg());
+        file.close();
+        return std::to_string(size);
+    }
 
-    std::stringstream ss;
-    ss << size;
-
-    file. close();
-
-    return ss.str();
+    return "0";
 }
 
 } // namespace inputleap

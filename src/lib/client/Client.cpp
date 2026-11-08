@@ -22,6 +22,8 @@
 #include "inputleap/Screen.h"
 #include "inputleap/FileChunk.h"
 #include "inputleap/DropHelper.h"
+#include "inputleap/DragInformation.h"
+#include "io/filesystem.h"
 #include "inputleap/PacketStreamFilter.h"
 #include "inputleap/ProtocolUtil.h"
 #include "inputleap/protocol_types.h"
@@ -371,6 +373,39 @@ Client::getName() const
     return m_name;
 }
 
+static std::string extractLocalFileFromClipboard(const IClipboard& cb) {
+    if (!cb.has(IClipboard::kText)) {
+        return "";
+    }
+    std::string text = cb.get(IClipboard::kText);
+    std::istringstream stream(text);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.rfind("file://", 0) == 0) {
+            std::string path = line.substr(7);
+            std::string decoded;
+            for (size_t i = 0; i < path.length(); ++i) {
+                if (path[i] == '%' && i + 2 < path.length()) {
+                    char hex[3] = { path[i + 1], path[i + 2], 0 };
+                    decoded += static_cast<char>(std::strtol(hex, nullptr, 16));
+                    i += 2;
+                } else {
+                    decoded += path[i];
+                }
+            }
+            if (DragInformation::isFileValid(decoded)) {
+                return decoded;
+            }
+        } else if (!line.empty() && line[0] == '/' && DragInformation::isFileValid(line)) {
+            return line;
+        }
+    }
+    return "";
+}
+
 void
 Client::sendClipboard(ClipboardID id)
 {
@@ -408,6 +443,15 @@ Client::sendClipboard(ClipboardID id)
             m_sentClipboard[id] = true;
             m_dataClipboard[id] = data;
             m_server->onClipboardChanged(id, &clipboard);
+
+            if (m_args.m_enableDragDrop && id == kClipboardClipboard) {
+                std::string file = extractLocalFileFromClipboard(clipboard);
+                if (!file.empty() && file != m_lastSentClipboardFile) {
+                    LOG_INFO("Client clipboard has file \"%s\", sending to server...", file.c_str());
+                    m_lastSentClipboardFile = file;
+                    sendFileToServer(file.c_str());
+                }
+            }
         }
     }
 }
@@ -718,7 +762,8 @@ void Client::write_to_drop_dir_thread()
 {
     LOG_DEBUG("starting write to drop dir thread");
 
-    while (m_screen->isFakeDraggingStarted()) {
+    int waitLimit = 5;
+    while (m_screen->isFakeDraggingStarted() && waitLimit-- > 0) {
         inputleap::this_thread_sleep(.1f);
     }
 
@@ -748,16 +793,37 @@ Client::isReceivedFileSizeValid()
 void
 Client::sendFileToServer(const char* filename)
 {
-    if (m_sendFileThread != nullptr) {
-        StreamChunker::interruptFile();
+    if (filename == nullptr || *filename == '\0') {
+        return;
     }
 
-    m_sendFileThread = new Thread([this, filename]() { send_file_thread(filename); });
+    try {
+        DragInformation di;
+        di.setFilename(filename);
+        DragFileList list;
+        list.push_back(di);
+        std::string infoString;
+        std::uint32_t fileCount = DragInformation::setupDragInfo(list, infoString);
+        if (m_server != nullptr) {
+            sendDragInfo(fileCount, infoString, infoString.size());
+        }
+
+        if (m_sendFileThread != nullptr) {
+            StreamChunker::interruptFile();
+        }
+
+        std::string fn(filename);
+        m_sendFileThread = new Thread([this, fn]() { send_file_thread(fn.c_str()); });
+    }
+    catch (const std::exception& e) {
+        LOG_ERR("Failed sending file to server: %s", e.what());
+    }
 }
 
 void Client::send_file_thread(const char* filename)
 {
     try {
+        LOG_DEBUG("sending file to server, filename=%s", filename);
         StreamChunker::sendFile(filename, m_events, this);
     }
     catch (std::runtime_error& error) {

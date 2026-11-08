@@ -211,6 +211,7 @@ private:
     std::string m_receivedFileData;
     DragFileList m_dragFileList;
     std::string m_dragFileExt;
+    std::string m_lastSentClipboardFile;
     Thread* m_sendFileThread;
     Thread* m_writeToDropDirThread;
     bool m_useSecureNetwork;

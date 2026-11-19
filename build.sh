@@ -18,5 +18,8 @@ if [ -f /tmp/avahi-dev/usr/lib/x86_64-linux-gnu/libdns_sd.so.1 ]; then
     cp -d /tmp/avahi-dev/usr/lib/x86_64-linux-gnu/libdns_sd.so* "$PROJECT_DIR/build/bin/" 2>/dev/null || true
 fi
 
+# Ensure dog-editor-inputleap symlink points to the full GUI (input-leap)
+ln -sfn input-leap "$PROJECT_DIR/build/bin/dog-editor-inputleap"
+
 echo "Build complete! Executables available in $PROJECT_DIR/build/bin/:"
 ls -lh "$PROJECT_DIR/build/bin/"

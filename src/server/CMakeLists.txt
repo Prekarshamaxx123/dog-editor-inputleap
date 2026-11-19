@@ -54,15 +54,19 @@ if (MINGW)
     target_link_libraries(input-leaps
         -Wl,--start-group arch base client common io mt net ipc platform server synlib -Wl,--end-group
         ${libs} OpenSSL::SSL OpenSSL::Crypto)
-    add_custom_command(TARGET input-leaps POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input-leaps.exe" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap.exe"
-    )
+    if (NOT INPUTLEAP_BUILD_GUI)
+        add_custom_command(TARGET input-leaps POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input-leaps.exe" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap.exe"
+        )
+    endif()
 else()
     target_link_libraries(input-leaps
         arch base client common io mt net ipc platform server synlib ${libs} OpenSSL::SSL OpenSSL::Crypto)
-    add_custom_command(TARGET input-leaps POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E create_symlink input-leaps "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap"
-    )
+    if (NOT INPUTLEAP_BUILD_GUI)
+        add_custom_command(TARGET input-leaps POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E create_symlink input-leaps "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dog-editor-inputleap"
+        )
+    endif()
 endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")

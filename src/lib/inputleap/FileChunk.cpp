@@ -169,7 +169,7 @@ int FileChunk::assemble(inputleap::IStream* stream,
         std::string targetDir = dropTarget;
         if (targetDir.empty()) {
             const char* home = getenv("HOME");
-            targetDir = home ? (std::string(home) + "/Downloads") : "/tmp";
+            targetDir = home ? (std::string(home) + "/.cache/dog-editor-inputleap/clipboard_cache") : "/tmp/dog-editor-inputleap_cache";
         }
 
         std::error_code ec;
@@ -179,6 +179,15 @@ int FileChunk::assemble(inputleap::IStream* stream,
         size_t lastSlash = actualFilename.find_last_of("/\\");
         if (lastSlash != std::string::npos) {
             actualFilename = actualFilename.substr(lastSlash + 1);
+        }
+
+        // Clean up previous cached files to avoid eating disk space
+        for (const auto& entry : inputleap::fs::directory_iterator(inputleap::fs::u8path(targetDir), ec)) {
+            std::string entryFilename = entry.path().filename().u8string();
+            if (entryFilename != actualFilename && entryFilename != (actualFilename + ".part")) {
+                std::error_code ecRem;
+                inputleap::fs::remove_all(entry.path(), ecRem);
+            }
         }
 
         s_currentFinalPath = targetDir;
@@ -214,7 +223,7 @@ int FileChunk::assemble(inputleap::IStream* stream,
         }
 
         std::string notifyCmd =
-            "notify-send -i document-save 'InputLeap File Transfer' 'Receiving: " +
+            "notify-send -i document-save 'InputLeap File Copy' 'Copying: " +
             actualFilename + " (" + sizeStr + ")...' >/dev/null 2>&1 &";
         int r = system(notifyCmd.c_str());
         (void)r;
@@ -234,14 +243,19 @@ int FileChunk::assemble(inputleap::IStream* stream,
         receivedSize += content.size();
 
 #if defined(WINAPI_XWINDOWS)
-        if (expectedSize > 50ULL * 1024ULL * 1024ULL && s_notificationWatch.getTime() >= 10.0) {
+        if (expectedSize > 50ULL * 1024ULL * 1024ULL && s_notificationWatch.getTime() >= 5.0) {
             size_t percent = (receivedSize * 100) / (expectedSize > 0 ? expectedSize : 1);
-            if (percent >= s_lastNotifiedPercent + 20) {
+            if (percent >= s_lastNotifiedPercent + 10) {
                 s_lastNotifiedPercent = percent;
                 s_notificationWatch.reset();
-                char buf[160];
-                snprintf(buf, sizeof(buf), "notify-send -i document-save 'InputLeap Transfer' 'Receiving: %zu%% (%zu / %zu MB)' >/dev/null 2>&1 &",
-                         percent, receivedSize / (1024 * 1024), expectedSize / (1024 * 1024));
+                char buf[200];
+                if (expectedSize > 1024ULL * 1024ULL * 1024ULL) {
+                    snprintf(buf, sizeof(buf), "notify-send -i document-save 'InputLeap Copying' 'Progress: %zu%% (%.2f / %.2f GB)' >/dev/null 2>&1 &",
+                             percent, (double)receivedSize / (1024.0 * 1024.0 * 1024.0), (double)expectedSize / (1024.0 * 1024.0 * 1024.0));
+                } else {
+                    snprintf(buf, sizeof(buf), "notify-send -i document-save 'InputLeap Copying' 'Progress: %zu%% (%zu / %zu MB)' >/dev/null 2>&1 &",
+                             percent, receivedSize / (1024 * 1024), expectedSize / (1024 * 1024));
+                }
                 int r = system(buf);
                 (void)r;
             }
@@ -276,12 +290,7 @@ int FileChunk::assemble(inputleap::IStream* stream,
             std::string extractTarget = dropTarget;
             if (extractTarget.empty()) {
                 const char* home = getenv("HOME");
-                if (home) {
-                    extractTarget = std::string(home) + "/Downloads";
-                } else {
-                    const char* userProfile = getenv("USERPROFILE");
-                    extractTarget = userProfile ? (std::string(userProfile) + "\\Downloads") : "/tmp";
-                }
+                extractTarget = home ? (std::string(home) + "/.cache/dog-editor-inputleap/clipboard_cache") : "/tmp/dog-editor-inputleap_cache";
             }
             std::string extractCmd = "tar -xzf '" + s_currentFinalPath + "' -C '" + extractTarget + "' >/dev/null 2>&1";
             int rExtract = system(extractCmd.c_str());
@@ -310,12 +319,12 @@ int FileChunk::assemble(inputleap::IStream* stream,
         int r1 = system(setClipCmd.c_str());
         (void)r1;
 
-        std::string notifyTitle = isFolder ? "InputLeap Folder Transfer" : "InputLeap File Transfer";
+        std::string notifyTitle = isFolder ? "InputLeap Folder Copied" : "InputLeap File Copied";
         std::string itemType = isFolder ? "folder" : "file";
         std::string doneNotify =
-            "notify-send -i dialog-ok '" + notifyTitle + "' 'Successfully received " + itemType + ": " +
+            "notify-send -i dialog-ok '" + notifyTitle + "' '" +
             inputleap::fs::u8path(s_currentFinalPath).filename().u8string() +
-            "\\nSaved to Downloads and copied to clipboard. Ready to paste!' >/dev/null 2>&1 &";
+            "\\nReady to paste into any folder!' >/dev/null 2>&1 &";
         int r2 = system(doneNotify.c_str());
         (void)r2;
 #endif

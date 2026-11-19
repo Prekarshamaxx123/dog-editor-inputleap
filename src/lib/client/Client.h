@@ -194,6 +194,7 @@ private:
     void handle_suspend();
     void handle_resume();
     void handle_file_chunk_sending(const Event& event);
+    void handle_file_keepalive(const Event& event);
     void handle_file_receive_completed(const Event&);
     void handle_stop_retry();
     void onFileReceiveCompleted();

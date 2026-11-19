@@ -141,27 +141,14 @@ void PlatformScreen::fakeDraggingFiles(DragFileList fileList)
 const std::string& PlatformScreen::getDropTarget() const
 {
     if (m_dropTarget.empty()) {
-        const char* xdg = getenv("XDG_DOWNLOAD_DIR");
-        if (xdg && *xdg) {
-            m_dropTarget = xdg;
+        const char* home = getenv("HOME");
+        if (home && *home) {
+            std::string cacheDir = std::string(home) + "/.cache/dog-editor-inputleap/clipboard_cache";
+            std::error_code ec;
+            inputleap::fs::create_directories(inputleap::fs::u8path(cacheDir), ec);
+            m_dropTarget = cacheDir;
         } else {
-            const char* home = getenv("HOME");
-            if (home && *home) {
-                std::string downloads = std::string(home) + "/Downloads";
-                struct stat st;
-                if (stat(downloads.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-                    m_dropTarget = downloads;
-                } else {
-                    std::string desktop = std::string(home) + "/Desktop";
-                    if (stat(desktop.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-                        m_dropTarget = desktop;
-                    } else {
-                        m_dropTarget = home;
-                    }
-                }
-            } else {
-                m_dropTarget = "/tmp";
-            }
+            m_dropTarget = "/tmp/dog-editor-inputleap_cache";
         }
         LOG_INFO("using drop target: %s", m_dropTarget.c_str());
     }

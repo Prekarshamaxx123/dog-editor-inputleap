@@ -87,6 +87,8 @@ Client::Client(IEventQueue* events, const std::string& name, const NetworkAddres
     if (m_args.m_enableDragDrop) {
         m_events->add_handler(EventType::FILE_CHUNK_SENDING, this,
                               [this](const auto& e){ handle_file_chunk_sending(e); });
+        m_events->add_handler(EventType::FILE_KEEPALIVE, this,
+                              [this](const auto& e){ handle_file_keepalive(e); });
         m_events->add_handler(EventType::FILE_RECEIVE_COMPLETED, this,
                               [this](const auto& e){ handle_file_receive_completed(e); });
     }
@@ -233,11 +235,6 @@ void Client::enter(std::int32_t xAbs, std::int32_t yAbs, std::uint32_t, KeyModif
     m_active = true;
     m_screen->mouseMove(xAbs, yAbs);
     m_screen->enter(mask);
-
-    if (m_sendFileThread != nullptr) {
-        StreamChunker::interruptFile();
-        m_sendFileThread = nullptr;
-    }
 }
 
 bool
@@ -757,6 +754,14 @@ void Client::handle_file_chunk_sending(const Event& event)
     send_file_chunk(chunk);
     if (chunk.mark_ == kDataChunk) {
         StreamChunker::onChunkDispatched();
+    }
+}
+
+void Client::handle_file_keepalive(const Event& event)
+{
+    (void) event;
+    if (m_server != nullptr && m_stream != nullptr) {
+        ProtocolUtil::writef(m_stream, kMsgCKeepAlive);
     }
 }
 

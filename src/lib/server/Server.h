@@ -149,7 +149,7 @@ public:
     void disconnect();
 
     //! Create a new thread and use it to send file to client
-    void sendFileToClient(const char* filename);
+    void sendFileToClient(const char* filename, BaseClientProxy* targetClient = nullptr);
 
     //! Send file information (DragInfo) to client without transferring file data
     void sendFileInfoToClient(const char* filename);
@@ -329,6 +329,7 @@ private:
     void handle_fake_input_begin_event();
     void handle_fake_input_end_event();
     void handle_file_chunk_sending_event(const Event& event);
+    void handle_file_keepalive_event(const Event& event);
     void handle_file_receive_completed_event(const Event& event);
 
     // event processing
@@ -485,6 +486,7 @@ private:
     DragFileList m_dragFileList;
     DragFileList m_fakeDragFileList;
     Thread* m_sendFileThread;
+    BaseClientProxy* m_fileTargetClient = nullptr;
     Thread* m_writeToDropDirThread;
     std::string m_dragFileExt;
     std::string m_lastSentClipboardFile;

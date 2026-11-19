@@ -865,6 +865,7 @@ ServerProxy::infoAcknowledgment()
 void
 ServerProxy::fileChunkReceived()
 {
+    resetKeepAliveAlarm();
     std::string filename = "received_file";
     if (m_client->getDragFileList().size() > 0) {
         filename = m_client->getDragFileList().at(0).getFilename();

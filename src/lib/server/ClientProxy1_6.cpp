@@ -514,6 +514,7 @@ void ClientProxy1_6::keepAlive()
 
 void ClientProxy1_6::fileChunkReceived()
 {
+    resetHeartbeatTimer();
     Server* server = getServer();
     std::string filename = "received_file";
     if (server->getFakeDragFileList().size() > 0) {

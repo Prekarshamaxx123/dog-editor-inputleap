@@ -165,6 +165,8 @@ Server::Server(
     if (m_args.m_enableDragDrop) {
         m_events->add_handler(EventType::FILE_CHUNK_SENDING, this,
                               [this](const auto& e){ handle_file_chunk_sending_event(e); });
+        m_events->add_handler(EventType::FILE_KEEPALIVE, this,
+                              [this](const auto& e){ handle_file_keepalive_event(e); });
         m_events->add_handler(EventType::FILE_RECEIVE_COMPLETED, this,
                               [this](const auto& e){ handle_file_receive_completed_event(e); });
 	}
@@ -504,7 +506,7 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 				if (!file.empty() && file != m_lastSentClipboardFile && file != FileChunk::getLastReceivedFile()) {
 					m_lastSentClipboardFile = file;
 					LOG_INFO("Clipboard has file \"%s\", sending to \"%s\"...", file.c_str(), getName(dst).c_str());
-					sendFileToClient(file.c_str());
+					sendFileToClient(file.c_str(), dst);
 				}
 			}
 		}
@@ -1489,6 +1491,16 @@ void Server::handle_file_chunk_sending_event(const Event& event)
     }
 }
 
+void Server::handle_file_keepalive_event(const Event& event)
+{
+    (void) event;
+    if (m_fileTargetClient != nullptr) {
+        m_fileTargetClient->keepAlive();
+    } else if (m_active != nullptr) {
+        m_active->keepAlive();
+    }
+}
+
 void Server::handle_file_receive_completed_event(const Event& event)
 {
     (void) event;
@@ -1984,11 +1996,6 @@ void Server::onMouseMoveSecondary(std::int32_t dx, std::int32_t dy)
 	} while (false);
 
 	if (jump) {
-		if (m_sendFileThread != nullptr) {
-			StreamChunker::interruptFile();
-			m_sendFileThread = nullptr;
-		}
-
 		std::int32_t newX = m_x;
 		std::int32_t newY = m_y;
 
@@ -2036,9 +2043,11 @@ void Server::onMouseWheel(std::int32_t xDelta, std::int32_t yDelta)
 void Server::on_file_chunk_sending(const FileChunk& chunk)
 {
 	LOG_DEBUG1("sending file chunk");
-	assert(m_active != nullptr);
-
-    m_active->file_chunk_sending(chunk);
+    if (m_fileTargetClient != nullptr) {
+        m_fileTargetClient->file_chunk_sending(chunk);
+    } else if (m_active != nullptr) {
+        m_active->file_chunk_sending(chunk);
+    }
 }
 
 void
@@ -2103,6 +2112,11 @@ Server::removeClient(BaseClientProxy* client)
 	// remove from list
 	m_clients.erase(getName(client));
 	m_clientSet.erase(i);
+
+    if (m_fileTargetClient == client) {
+        m_fileTargetClient = nullptr;
+        StreamChunker::interruptFile();
+    }
 
 	return true;
 }
@@ -2260,13 +2274,24 @@ Server::isReceivedFileSizeValid()
 }
 
 void
-Server::sendFileToClient(const char* filename)
+Server::sendFileToClient(const char* filename, BaseClientProxy* targetClient)
 {
     if (filename == nullptr || *filename == '\0') {
         return;
     }
 
     try {
+        BaseClientProxy* client = targetClient ? targetClient : m_active;
+        if (client == nullptr || client == m_primaryClient) {
+            for (auto& c : m_clients) {
+                if (c.second != m_primaryClient) {
+                    client = c.second;
+                    break;
+                }
+            }
+        }
+        m_fileTargetClient = client;
+
         std::string nameToSend = filename;
         std::error_code ecDir;
         if (inputleap::fs::is_directory(inputleap::fs::u8path(filename), ecDir)) {
@@ -2285,13 +2310,15 @@ Server::sendFileToClient(const char* filename)
         list.push_back(di);
         std::string infoString;
         std::uint32_t fileCount = DragInformation::setupDragInfo(list, infoString);
-        if (m_active != nullptr) {
+        if (m_fileTargetClient != nullptr) {
+            m_fileTargetClient->sendDragInfo(fileCount, infoString.c_str(), infoString.size());
+        } else if (m_active != nullptr) {
             m_active->sendDragInfo(fileCount, infoString.c_str(), infoString.size());
         }
 
         if (m_sendFileThread != nullptr) {
             StreamChunker::interruptFile();
-            m_sendFileThread->wait(1.0);
+            m_sendFileThread->wait(2.0);
             delete m_sendFileThread;
             m_sendFileThread = nullptr;
         }
@@ -2308,7 +2335,8 @@ void Server::send_file_thread(const char* filename)
 {
 	try {
 		LOG_DEBUG("sending file to client, filename=%s", filename);
-		StreamChunker::sendFile(filename, m_events, this, m_active ? m_active->getStream() : nullptr);
+        IStream* stream = m_fileTargetClient ? m_fileTargetClient->getStream() : (m_active ? m_active->getStream() : nullptr);
+		StreamChunker::sendFile(filename, m_events, this, stream);
 	}
 	catch (std::runtime_error &error) {
 		LOG_ERR("failed sending file chunks, error: %s", error.what());

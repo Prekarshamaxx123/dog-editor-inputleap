@@ -40,7 +40,7 @@
 
 namespace inputleap {
 
-static const size_t g_chunkSize = 64 * 1024; // 64kb
+static const size_t g_chunkSize = 128 * 1024; // 128kb
 static const int kMaxQueuedChunks = 16;
 static std::atomic<int> s_queuedChunks{0};
 static std::mutex s_chunkMutex;
@@ -77,7 +77,10 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
         std::string parentDir = (lastSlash != std::string::npos) ? dirPath.substr(0, lastSlash) : ".";
         std::string dirName = (lastSlash != std::string::npos) ? dirPath.substr(lastSlash + 1) : dirPath;
 
-        std::string tempArchive = "/tmp/.inputleap_folder_" + dirName + "__inputleap_folder__.tar.gz";
+        const char* home = getenv("HOME");
+        std::string tempDir = home ? (std::string(home) + "/.cache/dog-editor-inputleap/tmp") : "/tmp";
+        inputleap::fs::create_directories(inputleap::fs::u8path(tempDir), ecDir);
+        std::string tempArchive = tempDir + "/.inputleap_folder_" + dirName + "__inputleap_folder__.tar.gz";
         std::string tarCmd = "tar -czf '" + tempArchive + "' -C '" + parentDir + "' '" + dirName + "' >/dev/null 2>&1";
         int r = system(tarCmd.c_str());
         if (r == 0 && inputleap::fs::exists(inputleap::fs::u8path(tempArchive), ecDir)) {
@@ -123,13 +126,13 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
             break;
         }
 
-        // Network flow control: do not let TCP socket output buffer exceed 256 KB.
-        // This guarantees heartbeats and mouse events travel with < 25ms latency, preventing timeouts!
-        while (stream != nullptr && stream->getOutputSize() > 256 * 1024) {
+        // Network flow control: do not let TCP socket output buffer exceed 512 KB.
+        // This guarantees heartbeats and mouse events travel with low latency, preventing timeouts!
+        while (stream != nullptr && stream->getOutputSize() > 512 * 1024) {
             if (s_interruptFile) {
                 break;
             }
-            inputleap::this_thread_sleep(0.01f); // 10ms
+            inputleap::this_thread_sleep(0.005f); // 5ms
         }
 
         // Flow control: throttle chunk creation if too many chunks are queued in EventQueue
@@ -172,12 +175,16 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
 
         sentLength += static_cast<size_t>(bytesRead);
 
-        // Cooperative yield so mouse/keyboard threads have priority
-        inputleap::this_thread_sleep(0.0001f);
+        // Cooperative yield periodically so mouse/keyboard threads have priority
+        if ((sentLength / chunkSize) % 4 == 0) {
+            inputleap::this_thread_sleep(0.0005f);
+        }
     }
 
-    // Wait for TCP socket output buffer to drain before sending end message
-    while (stream != nullptr && stream->getOutputSize() > 0) {
+    // Wait for TCP socket output buffer to drain before sending end message (max 3s)
+    Stopwatch drainWatch;
+    drainWatch.start();
+    while (stream != nullptr && stream->getOutputSize() > 64 * 1024 && drainWatch.getTime() < 3.0) {
         if (s_interruptFile) {
             break;
         }

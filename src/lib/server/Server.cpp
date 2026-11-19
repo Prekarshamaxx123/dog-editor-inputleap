@@ -498,6 +498,13 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 				if (m_clipboards[id].m_clipboard.marshall().size() > m_maximumClipboardSize) {
 					continue;
 				}
+				if (m_args.m_enableDragDrop && id == kClipboardClipboard && dst != m_primaryClient) {
+					std::string file = extractLocalFileFromClipboard(m_clipboards[kClipboardClipboard].m_clipboard);
+					if (!file.empty()) {
+						// Don't forward raw local file path to remote client's clipboard!
+						continue;
+					}
+				}
 				m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
 			}
 
@@ -1484,7 +1491,11 @@ void Server::handle_fake_input_end_event()
 
 void Server::handle_file_chunk_sending_event(const Event& event)
 {
-    on_file_chunk_sending(event.get_data_as<FileChunk>());
+    const auto& chunk = event.get_data_as<FileChunk>();
+    on_file_chunk_sending(chunk);
+    if (chunk.mark_ == kDataChunk) {
+        StreamChunker::onChunkDispatched();
+    }
 }
 
 void Server::handle_file_receive_completed_event(const Event& event)
@@ -1531,6 +1542,16 @@ void Server::onClipboardChanged(BaseClientProxy* sender, ClipboardID id, std::ui
 	clipboard.m_clipboardData = data;
 	if (id == kClipboardClipboard) {
 		m_lastSentClipboardFile.clear();
+	}
+
+	if (m_args.m_enableDragDrop && id == kClipboardClipboard) {
+		std::string file = extractLocalFileFromClipboard(clipboard.m_clipboard);
+		if (!file.empty()) {
+			// Clipboard on sender contains a local file path.
+			// Do not forward raw local path to other screens!
+			// The file is transferred separately via file streaming.
+			return;
+		}
 	}
 
 	// tell all clients except the sender that the clipboard is dirty
@@ -2046,15 +2067,8 @@ Server::onFileReceiveCompleted()
 
 void Server::write_to_drop_dir_thread()
 {
-	LOG_DEBUG("starting write to drop dir thread");
-
-	int waitLimit = 5;
-	while (m_screen->isFakeDraggingStarted() && waitLimit-- > 0) {
-		inputleap::this_thread_sleep(.1f);
-	}
-
-	DropHelper::writeToDir(m_screen->getDropTarget(), m_fakeDragFileList,
-					m_receivedFileData);
+	LOG_INFO("File receive completed and verified on disk.");
+	m_fakeDragFileList.clear();
 }
 
 bool
@@ -2258,7 +2272,7 @@ Server::ClipboardInfo::ClipboardInfo() :
 bool
 Server::isReceivedFileSizeValid()
 {
-	return m_expectedFileSize == m_receivedFileData.size();
+	return m_expectedFileSize == m_receivedFileSize && m_receivedFileSize > 0;
 }
 
 void
@@ -2281,6 +2295,9 @@ Server::sendFileToClient(const char* filename)
 
         if (m_sendFileThread != nullptr) {
             StreamChunker::interruptFile();
+            m_sendFileThread->wait(1.0);
+            delete m_sendFileThread;
+            m_sendFileThread = nullptr;
         }
 
         std::string fn(filename);
@@ -2295,7 +2312,7 @@ void Server::send_file_thread(const char* filename)
 {
 	try {
 		LOG_DEBUG("sending file to client, filename=%s", filename);
-		StreamChunker::sendFile(filename, m_events, this);
+		StreamChunker::sendFile(filename, m_events, this, m_active ? m_active->getStream() : nullptr);
 	}
 	catch (std::runtime_error &error) {
 		LOG_ERR("failed sending file chunks, error: %s", error.what());

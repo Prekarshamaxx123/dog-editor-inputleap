@@ -56,6 +56,7 @@ public:
     bool isReady() const override;
     bool isFatal() const override;
     std::uint32_t getSize() const override;
+    std::uint32_t getOutputSize() const override;
 
     // IDataSocket overrides
     void connect(const NetworkAddress&) override;

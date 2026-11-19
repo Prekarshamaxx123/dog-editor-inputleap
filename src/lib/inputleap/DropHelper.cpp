@@ -70,8 +70,8 @@ DropHelper::writeToDir(const std::string& destination, DragFileList& fileList, s
 
         fileList.clear();
     }
-    else {
-        LOG_ERR("drop file failed: destination is empty or no data received");
+    else if (destination.empty()) {
+        LOG_ERR("drop file failed: destination is empty");
     }
 }
 

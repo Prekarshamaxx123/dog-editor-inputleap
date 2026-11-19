@@ -4,6 +4,10 @@ set -e
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Building dog-editor-inputleap with full GUI in $PROJECT_DIR..."
 
+if [ ! -d /tmp/avahi-dev ] && [ -d "$PROJECT_DIR/../avahi-dev" ]; then
+    cp -r "$PROJECT_DIR/../avahi-dev" /tmp/avahi-dev
+fi
+
 flatpak run --user --filesystem=/home/kali/Projects/inputleap --filesystem=/tmp --command=bash org.kde.Sdk//6.10 -c "
     cd '$PROJECT_DIR'
     export PKG_CONFIG_PATH=/tmp/avahi-dev/usr/lib/x86_64-linux-gnu/pkgconfig:\$PKG_CONFIG_PATH

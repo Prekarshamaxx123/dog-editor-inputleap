@@ -24,6 +24,10 @@
 #include "base/String.h"
 #include "base/Log.h"
 
+#include <fstream>
+#include <cstdio>
+#include "io/filesystem.h"
+
 namespace inputleap {
 
 static const std::uint16_t kIntervalThreshold = 1;
@@ -115,6 +119,184 @@ int FileChunk::assemble(inputleap::IStream* stream, std::string& dataReceived, s
             break;
     }
 
+    return kError;
+}
+
+static std::ofstream s_receivingFile;
+static std::string s_currentPartPath;
+static std::string s_currentFinalPath;
+static size_t s_lastNotifiedPercent = 0;
+static Stopwatch s_notificationWatch;
+
+int FileChunk::assemble(inputleap::IStream* stream,
+                        const std::string& dropTarget,
+                        const std::string& filename,
+                        size_t& receivedSize,
+                        size_t& expectedSize)
+{
+    std::uint8_t mark = 0;
+    std::string content;
+
+    if (!ProtocolUtil::readf(stream, kMsgDFileTransfer + 4, &mark, &content)) {
+        if (s_receivingFile.is_open()) {
+            s_receivingFile.close();
+            if (!s_currentPartPath.empty()) {
+                std::remove(s_currentPartPath.c_str());
+            }
+        }
+        return kError;
+    }
+
+    switch (mark) {
+    case kDataStart: {
+        if (s_receivingFile.is_open()) {
+            s_receivingFile.close();
+            if (!s_currentPartPath.empty()) {
+                std::remove(s_currentPartPath.c_str());
+            }
+        }
+
+        expectedSize = inputleap::string::stringToSizeType(content);
+        receivedSize = 0;
+        s_lastNotifiedPercent = 0;
+
+        std::string targetDir = dropTarget;
+        if (targetDir.empty()) {
+            const char* home = getenv("HOME");
+            targetDir = home ? (std::string(home) + "/Downloads") : "/tmp";
+        }
+
+        std::error_code ec;
+        inputleap::fs::create_directories(inputleap::fs::u8path(targetDir), ec);
+
+        std::string actualFilename = filename.empty() ? "received_file" : filename;
+        size_t lastSlash = actualFilename.find_last_of("/\\");
+        if (lastSlash != std::string::npos) {
+            actualFilename = actualFilename.substr(lastSlash + 1);
+        }
+
+        s_currentFinalPath = targetDir;
+#ifdef SYSAPI_WIN32
+        s_currentFinalPath += "\\";
+#else
+        s_currentFinalPath += "/";
+#endif
+        s_currentFinalPath += actualFilename;
+        s_currentPartPath = s_currentFinalPath + ".part";
+
+        open_utf8_path(s_receivingFile, s_currentPartPath, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!s_receivingFile.is_open()) {
+            LOG_ERR("assemble: cannot create temporary file \"%s\"", s_currentPartPath.c_str());
+            return kError;
+        }
+
+        LOG_INFO("Receiving incoming file \"%s\" (%zu bytes) into \"%s\"",
+                 actualFilename.c_str(), expectedSize, s_currentFinalPath.c_str());
+
+#if defined(WINAPI_XWINDOWS)
+        std::string sizeStr;
+        if (expectedSize > 1024ULL * 1024ULL * 1024ULL) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%.2f GB", (double)expectedSize / (1024.0 * 1024.0 * 1024.0));
+            sizeStr = buf;
+        } else if (expectedSize > 1024ULL * 1024ULL) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%.1f MB", (double)expectedSize / (1024.0 * 1024.0));
+            sizeStr = buf;
+        } else {
+            sizeStr = std::to_string(expectedSize / 1024) + " KB";
+        }
+
+        std::string notifyCmd =
+            "notify-send -i document-save 'InputLeap File Transfer' 'Receiving: " +
+            actualFilename + " (" + sizeStr + ")...' >/dev/null 2>&1 &";
+        int r = system(notifyCmd.c_str());
+        (void)r;
+        s_notificationWatch.reset();
+        s_notificationWatch.start();
+#endif
+        return kStart;
+    }
+
+    case kDataChunk: {
+        if (!s_receivingFile.is_open()) {
+            LOG_ERR("assemble: received chunk but file is not open");
+            return kError;
+        }
+
+        s_receivingFile.write(content.data(), content.size());
+        receivedSize += content.size();
+
+#if defined(WINAPI_XWINDOWS)
+        if (expectedSize > 50ULL * 1024ULL * 1024ULL && s_notificationWatch.getTime() >= 10.0) {
+            size_t percent = (receivedSize * 100) / (expectedSize > 0 ? expectedSize : 1);
+            if (percent >= s_lastNotifiedPercent + 20) {
+                s_lastNotifiedPercent = percent;
+                s_notificationWatch.reset();
+                char buf[160];
+                snprintf(buf, sizeof(buf), "notify-send -i document-save 'InputLeap Transfer' 'Receiving: %zu%% (%zu / %zu MB)' >/dev/null 2>&1 &",
+                         percent, receivedSize / (1024 * 1024), expectedSize / (1024 * 1024));
+                int r = system(buf);
+                (void)r;
+            }
+        }
+#endif
+        return kNotFinish;
+    }
+
+    case kDataEnd: {
+        if (s_receivingFile.is_open()) {
+            s_receivingFile.flush();
+            s_receivingFile.close();
+        }
+
+        if (expectedSize != receivedSize) {
+            LOG_ERR("corrupted file transfer: expected %zu bytes, received %zu bytes", expectedSize, receivedSize);
+            std::remove(s_currentPartPath.c_str());
+            return kError;
+        }
+
+        std::error_code ec;
+        inputleap::fs::rename(inputleap::fs::u8path(s_currentPartPath), inputleap::fs::u8path(s_currentFinalPath), ec);
+        if (ec) {
+            std::remove(s_currentFinalPath.c_str());
+            if (std::rename(s_currentPartPath.c_str(), s_currentFinalPath.c_str()) != 0) {
+                LOG_ERR("assemble: rename failed from %s to %s", s_currentPartPath.c_str(), s_currentFinalPath.c_str());
+            }
+        }
+
+        LOG_INFO("Successfully saved received file \"%s\" (%zu bytes)", s_currentFinalPath.c_str(), receivedSize);
+
+#if defined(WINAPI_XWINDOWS)
+        std::string setClipCmd =
+            "((which dog-editor-setclip >/dev/null 2>&1 && dog-editor-setclip '" + s_currentFinalPath + "') || "
+            "(test -x \"$HOME/.local/bin/dog-editor-setclip\" && \"$HOME/.local/bin/dog-editor-setclip\" '" + s_currentFinalPath + "') || "
+            "(which python3 >/dev/null 2>&1 && python3 -c \"import sys, os; from PyQt5 import QtWidgets, QtCore; app = QtWidgets.QApplication(sys.argv[:1]); cb = app.clipboard(); md = QtCore.QMimeData(); path = os.path.abspath(sys.argv[1]); uri = QtCore.QUrl.fromLocalFile(path); md.setUrls([uri]); md.setText(f'file://{path}'); md.setData('x-special/gnome-copied-files', f'copy\\nfile://{path}\\n'.encode('utf-8')); cb.setMimeData(md); cb.dataChanged.connect(app.quit); app.exec_()\" '" + s_currentFinalPath + "') || "
+            "(which xclip >/dev/null 2>&1 && printf '%s\\r\\n' 'file://" + s_currentFinalPath + "' | xclip -selection clipboard -t text/uri-list)) >/dev/null 2>&1 &";
+        int r1 = system(setClipCmd.c_str());
+        (void)r1;
+
+        std::string doneNotify =
+            "notify-send -i dialog-ok 'InputLeap File Transfer' 'Successfully received: " +
+            inputleap::fs::u8path(s_currentFinalPath).filename().u8string() +
+            "\\nSaved to Downloads and copied to clipboard. Ready to paste!' >/dev/null 2>&1 &";
+        int r2 = system(doneNotify.c_str());
+        (void)r2;
+#endif
+
+        return kFinish;
+    }
+
+    default:
+        break;
+    }
+
+    if (s_receivingFile.is_open()) {
+        s_receivingFile.close();
+        if (!s_currentPartPath.empty()) {
+            std::remove(s_currentPartPath.c_str());
+        }
+    }
     return kError;
 }
 

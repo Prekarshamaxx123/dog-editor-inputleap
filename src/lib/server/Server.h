@@ -179,8 +179,14 @@ public:
     //! Return expected file data size
     size_t& getExpectedFileSize() { return m_expectedFileSize; }
 
+    //! Return received file size
+    size_t& getReceivedFileSize() { return m_receivedFileSize; }
+
     //! Return received file data
     std::string& getReceivedFileData() { return m_receivedFileData; }
+
+    //! Return screen
+    inputleap::Screen* getScreen() const { return m_screen; }
 
     //! Return fake drag file list
     DragFileList getFakeDragFileList() { return m_fakeDragFileList; }
@@ -468,6 +474,7 @@ private:
 
     // file transfer
     size_t m_expectedFileSize;
+    size_t m_receivedFileSize = 0;
     std::string m_receivedFileData;
     DragFileList m_dragFileList;
     DragFileList m_fakeDragFileList;

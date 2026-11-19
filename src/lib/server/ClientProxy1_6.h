@@ -37,7 +37,7 @@ public:
 
     Server* getServer() { return m_server; }
 
-    IStream* getStream() const;
+    IStream* getStream() const override;
 
     // IScreen
     bool getClipboard(ClipboardID id, IClipboard*) const override;

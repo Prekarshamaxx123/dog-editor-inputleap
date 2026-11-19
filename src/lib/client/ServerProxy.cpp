@@ -19,6 +19,7 @@
 #include "client/ServerProxy.h"
 
 #include "client/Client.h"
+#include "inputleap/Screen.h"
 #include "inputleap/FileChunk.h"
 #include "inputleap/ClipboardChunk.h"
 #include "inputleap/StreamChunker.h"
@@ -864,19 +865,24 @@ ServerProxy::infoAcknowledgment()
 void
 ServerProxy::fileChunkReceived()
 {
+    std::string filename = "received_file";
+    if (m_client->getDragFileList().size() > 0) {
+        filename = m_client->getDragFileList().at(0).getFilename();
+    }
+    std::string dropTarget = m_client->getScreen()->getDropTarget();
+
     int result = FileChunk::assemble(
                     m_stream,
-                    m_client->getReceivedFileData(),
+                    dropTarget,
+                    filename,
+                    m_client->getReceivedFileSize(),
                     m_client->getExpectedFileSize());
 
     if (result == kFinish) {
         m_events->add_event(EventType::FILE_RECEIVE_COMPLETED, m_client);
     }
     else if (result == kStart) {
-        if (m_client->getDragFileList().size() > 0) {
-            std::string filename = m_client->getDragFileList().at(0).getFilename();
-            LOG_DEBUG("start receiving %s", filename.c_str());
-        }
+        LOG_DEBUG("start receiving %s into %s", filename.c_str(), dropTarget.c_str());
     }
 }
 

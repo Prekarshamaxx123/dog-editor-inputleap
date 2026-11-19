@@ -113,6 +113,9 @@ public:
     */
     virtual std::uint32_t getSize() const = 0;
 
+    //! Get bytes buffered in output waiting to be sent
+    virtual std::uint32_t getOutputSize() const { return 0; }
+
     //@}
 };
 

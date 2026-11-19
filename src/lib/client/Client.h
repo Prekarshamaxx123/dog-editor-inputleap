@@ -120,8 +120,14 @@ public:
     //! Return expected file size
     size_t& getExpectedFileSize() { return m_expectedFileSize; }
 
+    //! Return received file size
+    size_t& getReceivedFileSize() { return m_receivedFileSize; }
+
     //! Return received file data
     std::string& getReceivedFileData() { return m_receivedFileData; }
+
+    //! Return screen
+    inputleap::Screen* getScreen() const { return m_screen; }
 
     //! Return drag file list
     DragFileList getDragFileList() { return m_dragFileList; }
@@ -208,6 +214,7 @@ private:
     std::string m_dataClipboard[kClipboardEnd];
     IEventQueue* m_events;
     std::size_t m_expectedFileSize;
+    std::size_t m_receivedFileSize = 0;
     std::string m_receivedFileData;
     DragFileList m_dragFileList;
     std::string m_dragFileExt;

@@ -32,6 +32,8 @@ public:
     static FileChunk data(std::uint8_t* data, size_t dataSize);
     static FileChunk end();
     static int assemble(inputleap::IStream* stream, std::string& dataCached, size_t& expectedSize);
+    static int assemble(inputleap::IStream* stream, const std::string& dropTarget,
+                        const std::string& filename, size_t& receivedSize, size_t& expectedSize);
 
     std::uint8_t mark_ = 0;
     std::string data_;

@@ -24,6 +24,7 @@
 #include "inputleap/Exceptions.h"
 #include "inputleap/FileChunk.h"
 #include "inputleap/StreamChunker.h"
+#include "inputleap/Screen.h"
 #include "server/Server.h"
 #include "io/IStream.h"
 #include "base/Log.h"
@@ -514,16 +515,23 @@ void ClientProxy1_6::keepAlive()
 void ClientProxy1_6::fileChunkReceived()
 {
     Server* server = getServer();
-    int result = FileChunk::assemble(getStream(), server->getReceivedFileData(),
-                                     server->getExpectedFileSize());
+    std::string filename = "received_file";
+    if (server->getFakeDragFileList().size() > 0) {
+        filename = server->getFakeDragFileList().at(0).getFilename();
+    }
+    std::string dropTarget = server->getScreen()->getDropTarget();
+
+    int result = FileChunk::assemble(
+                    getStream(),
+                    dropTarget,
+                    filename,
+                    server->getReceivedFileSize(),
+                    server->getExpectedFileSize());
 
     if (result == kFinish) {
         m_events->add_event(EventType::FILE_RECEIVE_COMPLETED, server);
     } else if (result == kStart) {
-        if (server->getFakeDragFileList().size() > 0) {
-            std::string filename = server->getFakeDragFileList().at(0).getFilename();
-            LOG_DEBUG("start receiving %s", filename.c_str());
-        }
+        LOG_DEBUG("start receiving %s into %s", filename.c_str(), dropTarget.c_str());
     }
 }
 

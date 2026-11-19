@@ -52,6 +52,7 @@ public:
     const EventTarget* get_event_target() const override;
     bool isReady() const override;
     std::uint32_t getSize() const override;
+    std::uint32_t getOutputSize() const override { return stream_ ? stream_->getOutputSize() : 0; }
 
     //! Get the stream
     /*!

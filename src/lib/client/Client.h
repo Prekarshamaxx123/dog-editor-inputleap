@@ -86,6 +86,12 @@ public:
     //! Create a new thread and use it to send file to Server
     void sendFileToServer(const char* filename);
 
+    //! Send file information (DragInfo) to Server without transferring file data
+    void sendFileInfoToServer(const char* filename);
+
+    //! Called when server requests the staged clipboard file
+    void onFileTransferRequested();
+
     //! Send dragging file information back to server
     void sendDragInfo(std::uint32_t fileCount, std::string& info, size_t size);
 
@@ -219,6 +225,9 @@ private:
     DragFileList m_dragFileList;
     std::string m_dragFileExt;
     std::string m_lastSentClipboardFile;
+    std::string m_stagedClipboardFile;
+    std::string m_pendingRemoteFile;
+    bool m_pastingPendingRemoteFile = false;
     Thread* m_sendFileThread;
     Thread* m_writeToDropDirThread;
     bool m_useSecureNetwork;

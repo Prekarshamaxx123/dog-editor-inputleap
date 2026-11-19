@@ -532,7 +532,16 @@ void ClientProxy1_6::fileChunkReceived()
         m_events->add_event(EventType::FILE_RECEIVE_COMPLETED, server);
     } else if (result == kStart) {
         LOG_DEBUG("start receiving %s into %s", filename.c_str(), dropTarget.c_str());
+    } else if (result == kRequest) {
+        LOG_INFO("client requested staged file transfer");
+        server->onFileTransferRequested(this);
     }
+}
+
+void ClientProxy1_6::requestRemoteFile()
+{
+    std::string empty;
+    ProtocolUtil::writef(getStream(), kMsgDFileTransfer, (std::uint8_t)kDataRequest, &empty);
 }
 
 void ClientProxy1_6::dragInfoReceived()

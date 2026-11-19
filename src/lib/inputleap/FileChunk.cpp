@@ -287,6 +287,10 @@ int FileChunk::assemble(inputleap::IStream* stream,
         return kFinish;
     }
 
+    case kDataRequest: {
+        return kRequest;
+    }
+
     default:
         break;
     }

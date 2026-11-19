@@ -284,7 +284,22 @@ Client::setClipboardDirty(ClipboardID, bool)
 void
 Client::keyDown(KeyID id, KeyModifierMask mask, KeyButton button)
 {
-     m_screen->keyDown(id, mask, button);
+    bool isPasteKey = (mask & KeyModifierControl) && (id == 'v' || id == 'V' || id == 0x0076 || id == 0x0056);
+    if (isPasteKey && !m_pendingRemoteFile.empty()) {
+        if (!m_pastingPendingRemoteFile) {
+            m_pastingPendingRemoteFile = true;
+            LOG_INFO("User pressed Ctrl+V on client for pending remote file \"%s\", requesting from server...", m_pendingRemoteFile.c_str());
+            std::string notify = "notify-send -i document-save 'InputLeap File Paste' 'Downloading \"" + m_pendingRemoteFile + "\"...' >/dev/null 2>&1 &";
+            int r = system(notify.c_str());
+            (void)r;
+            if (m_server != nullptr) {
+                m_server->requestRemoteFile();
+            }
+        }
+        return;
+    }
+
+    m_screen->keyDown(id, mask, button);
 }
 
 void Client::keyRepeat(KeyID id, KeyModifierMask mask, std::int32_t count, KeyButton button)
@@ -295,7 +310,11 @@ void Client::keyRepeat(KeyID id, KeyModifierMask mask, std::int32_t count, KeyBu
 void
 Client::keyUp(KeyID id, KeyModifierMask mask, KeyButton button)
 {
-     m_screen->keyUp(id, mask, button);
+    if (m_pastingPendingRemoteFile && (id == 'v' || id == 'V' || id == 0x0076 || id == 0x0056)) {
+        return;
+    }
+
+    m_screen->keyUp(id, mask, button);
 }
 
 void
@@ -446,14 +465,14 @@ Client::sendClipboard(ClipboardID id)
             if (m_args.m_enableDragDrop && id == kClipboardClipboard) {
                 std::string file = extractLocalFileFromClipboard(clipboard);
                 if (!file.empty()) {
-                    if (file != m_lastSentClipboardFile) {
-                        LOG_INFO("Client clipboard has file \"%s\", sending to server...", file.c_str());
-                        m_lastSentClipboardFile = file;
-                        sendFileToServer(file.c_str());
+                    if (file != m_stagedClipboardFile) {
+                        m_stagedClipboardFile = file;
+                        LOG_INFO("Client staged clipboard file \"%s\" for on-demand paste", file.c_str());
+                        sendFileInfoToServer(file.c_str());
                     }
-                    // Do not forward raw local path to the server clipboard!
-                    // The server will receive the file into ~/Downloads and set its own clipboard once received.
                     return;
+                } else {
+                    m_stagedClipboardFile.clear();
                 }
             }
 
@@ -772,6 +791,13 @@ void Client::write_to_drop_dir_thread()
 {
     LOG_INFO("File receive completed and verified on disk.");
     m_dragFileList.clear();
+
+    if (m_pastingPendingRemoteFile) {
+        m_pastingPendingRemoteFile = false;
+        m_pendingRemoteFile.clear();
+        int r = system("sleep 0.2 && (which xdotool >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v) >/dev/null 2>&1 &");
+        (void)r;
+    }
 }
 
 void Client::dragInfoReceived(std::uint32_t fileNum, std::string data)
@@ -783,8 +809,42 @@ void Client::dragInfoReceived(std::uint32_t fileNum, std::string data)
     }
 
     DragInformation::parseDragInfo(m_dragFileList, fileNum, data);
+    if (!m_dragFileList.empty()) {
+        m_pendingRemoteFile = m_dragFileList.at(0).getFilename();
+        LOG_INFO("Client registered pending remote file \"%s\" for on-demand paste", m_pendingRemoteFile.c_str());
+    }
 
     m_screen->startDraggingFiles(m_dragFileList);
+}
+
+void Client::onFileTransferRequested()
+{
+    if (!m_stagedClipboardFile.empty()) {
+        LOG_INFO("Sending staged file \"%s\" to server on demand", m_stagedClipboardFile.c_str());
+        sendFileToServer(m_stagedClipboardFile.c_str());
+    }
+}
+
+void Client::sendFileInfoToServer(const char* filename)
+{
+    if (filename == nullptr || *filename == '\0') {
+        return;
+    }
+
+    try {
+        DragInformation di;
+        di.setFilename(filename);
+        DragFileList list;
+        list.push_back(di);
+        std::string infoString;
+        std::uint32_t fileCount = DragInformation::setupDragInfo(list, infoString);
+        if (m_server != nullptr) {
+            sendDragInfo(fileCount, infoString, infoString.size());
+        }
+    }
+    catch (const std::exception& e) {
+        LOG_ERR("Failed sending file info to server: %s", e.what());
+    }
 }
 
 bool

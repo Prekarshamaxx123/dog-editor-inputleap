@@ -66,6 +66,7 @@ public:
     // IClient overrides
     virtual void sendDragInfo(std::uint32_t fileCount, const char* info, size_t size) = 0;
     virtual void file_chunk_sending(const FileChunk& chunk) = 0;
+    virtual void requestRemoteFile() {}
     virtual IStream* getStream() const { return nullptr; }
     std::string getName() const override;
     virtual IClientConnection& get_conn() const = 0;

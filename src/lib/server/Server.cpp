@@ -510,10 +510,14 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 
 			if (m_args.m_enableDragDrop && dst != m_primaryClient) {
 				std::string file = extractLocalFileFromClipboard(m_clipboards[kClipboardClipboard].m_clipboard);
-				if (!file.empty() && file != m_lastSentClipboardFile) {
-					LOG_INFO("Clipboard has file \"%s\", sending to \"%s\"...", file.c_str(), getName(dst).c_str());
-					m_lastSentClipboardFile = file;
-					sendFileToClient(file.c_str());
+				if (!file.empty()) {
+					if (file != m_stagedClipboardFile) {
+						LOG_INFO("Server staged clipboard file \"%s\" for on-demand paste to \"%s\"", file.c_str(), getName(dst).c_str());
+						m_stagedClipboardFile = file;
+						sendFileInfoToClient(file.c_str());
+					}
+				} else {
+					m_stagedClipboardFile.clear();
 				}
 			}
 		}
@@ -1625,6 +1629,43 @@ Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button,
 	LOG_DEBUG1("onKeyDown id=%d mask=0x%04x button=0x%04x", id, mask, button);
 	assert(m_active != nullptr);
 
+    bool isPasteKey = (mask & KeyModifierControl) && (id == 'v' || id == 'V' || id == 0x0076 || id == 0x0056);
+
+    if (m_active == m_primaryClient) {
+        if (isPasteKey && !m_pendingRemoteFile.empty()) {
+            if (!m_pastingPendingRemoteFile) {
+                m_pastingPendingRemoteFile = true;
+                LOG_INFO("User pressed Ctrl+V on server for pending remote file \"%s\", requesting transfer...", m_pendingRemoteFile.c_str());
+                std::string notify = "notify-send -i document-save 'InputLeap File Paste' 'Downloading \"" + m_pendingRemoteFile + "\"...' >/dev/null 2>&1 &";
+                int r = system(notify.c_str());
+                (void)r;
+                if (m_pendingRemoteFileOwner != nullptr) {
+                    m_pendingRemoteFileOwner->requestRemoteFile();
+                } else {
+                    for (auto& c : m_clients) {
+                        if (c.second != m_primaryClient) {
+                            c.second->requestRemoteFile();
+                            break;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+    } else {
+        if (isPasteKey && !m_stagedClipboardFile.empty()) {
+            if (!m_pastingPendingRemoteFile) {
+                m_pastingPendingRemoteFile = true;
+                LOG_INFO("User pressed Ctrl+V on client for staged file \"%s\", sending to \"%s\"...", m_stagedClipboardFile.c_str(), getName(m_active).c_str());
+                std::string notify = "notify-send -i document-save 'InputLeap File Paste' 'Sending \"" + m_stagedClipboardFile + "\" to " + getName(m_active) + "...' >/dev/null 2>&1 &";
+                int r = system(notify.c_str());
+                (void)r;
+                sendFileToClient(m_stagedClipboardFile.c_str());
+            }
+            return;
+        }
+    }
+
 	// relay
 	if (!m_keyboardBroadcasting && IKeyState::KeyInfo::isDefault(screens)) {
 		m_active->keyDown(id, mask, button);
@@ -1650,6 +1691,10 @@ Server::onKeyUp(KeyID id, KeyModifierMask mask, KeyButton button,
 {
 	LOG_DEBUG1("onKeyUp id=%d mask=0x%04x button=0x%04x", id, mask, button);
 	assert(m_active != nullptr);
+
+    if (m_pastingPendingRemoteFile && (id == 'v' || id == 'V' || id == 0x0076 || id == 0x0056)) {
+        return;
+    }
 
 	// relay
 	if (!m_keyboardBroadcasting && IKeyState::KeyInfo::isDefault(screens)) {
@@ -2069,6 +2114,13 @@ void Server::write_to_drop_dir_thread()
 {
 	LOG_INFO("File receive completed and verified on disk.");
 	m_fakeDragFileList.clear();
+
+    if (m_pastingPendingRemoteFile) {
+        m_pastingPendingRemoteFile = false;
+        m_pendingRemoteFile.clear();
+        int r = system("sleep 0.2 && (which xdotool >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v) >/dev/null 2>&1 &");
+        (void)r;
+    }
 }
 
 bool
@@ -2329,8 +2381,43 @@ void Server::dragInfoReceived(std::uint32_t fileNum, std::string content)
 	}
 
 	DragInformation::parseDragInfo(m_fakeDragFileList, fileNum, content);
+    if (!m_fakeDragFileList.empty()) {
+        m_pendingRemoteFile = m_fakeDragFileList.at(0).getFilename();
+        m_pendingRemoteFileOwner = m_active;
+        LOG_INFO("Server registered pending remote file \"%s\" for on-demand paste", m_pendingRemoteFile.c_str());
+    }
 
 	m_screen->startDraggingFiles(m_fakeDragFileList);
+}
+
+void Server::onFileTransferRequested(BaseClientProxy* client)
+{
+    if (!m_stagedClipboardFile.empty()) {
+        LOG_INFO("Sending staged file \"%s\" to client on demand", m_stagedClipboardFile.c_str());
+        sendFileToClient(m_stagedClipboardFile.c_str());
+    }
+}
+
+void Server::sendFileInfoToClient(const char* filename)
+{
+    if (filename == nullptr || *filename == '\0') {
+        return;
+    }
+
+    try {
+        DragInformation di;
+        di.setFilename(filename);
+        DragFileList list;
+        list.push_back(di);
+        std::string infoString;
+        std::uint32_t fileCount = DragInformation::setupDragInfo(list, infoString);
+        if (m_active != nullptr) {
+            m_active->sendDragInfo(fileCount, infoString.c_str(), infoString.size());
+        }
+    }
+    catch (const std::exception& e) {
+        LOG_ERR("Failed sending file info to client: %s", e.what());
+    }
 }
 
 } // namespace inputleap

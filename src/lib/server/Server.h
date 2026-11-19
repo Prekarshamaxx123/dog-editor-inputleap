@@ -151,6 +151,12 @@ public:
     //! Create a new thread and use it to send file to client
     void sendFileToClient(const char* filename);
 
+    //! Send file information (DragInfo) to client without transferring file data
+    void sendFileInfoToClient(const char* filename);
+
+    //! Called when client requests the staged clipboard file
+    void onFileTransferRequested(BaseClientProxy* client);
+
     //! Received dragging information from client
     void dragInfoReceived(std::uint32_t fileNum, std::string content);
 
@@ -482,6 +488,10 @@ private:
     Thread* m_writeToDropDirThread;
     std::string m_dragFileExt;
     std::string m_lastSentClipboardFile;
+    std::string m_stagedClipboardFile;
+    std::string m_pendingRemoteFile;
+    BaseClientProxy* m_pendingRemoteFileOwner = nullptr;
+    bool m_pastingPendingRemoteFile = false;
     bool m_ignoreFileTransfer;
     bool m_enableClipboard;
     size_t m_maximumClipboardSize;

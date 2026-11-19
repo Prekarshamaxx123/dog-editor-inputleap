@@ -884,6 +884,10 @@ ServerProxy::fileChunkReceived()
     else if (result == kStart) {
         LOG_DEBUG("start receiving %s into %s", filename.c_str(), dropTarget.c_str());
     }
+    else if (result == kRequest) {
+        LOG_INFO("server requested staged file transfer");
+        m_client->onFileTransferRequested();
+    }
 }
 
 void
@@ -913,6 +917,12 @@ void ServerProxy::sendDragInfo(std::uint32_t fileCount, const char* info, size_t
 {
     std::string data(info, size);
     ProtocolUtil::writef(m_stream, kMsgDDragInfo, fileCount, &data);
+}
+
+void ServerProxy::requestRemoteFile()
+{
+    std::string empty;
+    ProtocolUtil::writef(m_stream, kMsgDFileTransfer, (std::uint8_t)kDataRequest, &empty);
 }
 
 } // namespace inputleap

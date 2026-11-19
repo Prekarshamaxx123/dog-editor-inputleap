@@ -80,6 +80,7 @@ protected:
 
     void fileChunkReceived();
     void dragInfoReceived();
+    void requestRemoteFile() override;
 
 private:
     void disconnect();

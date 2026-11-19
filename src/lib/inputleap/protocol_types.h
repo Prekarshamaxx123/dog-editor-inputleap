@@ -84,7 +84,8 @@ enum EDirectionMask {
 enum EDataTransfer {
     kDataStart = 1,
     kDataChunk = 2,
-    kDataEnd = 3
+    kDataEnd = 3,
+    kDataRequest = 4
 };
 
 // Data received constants
@@ -92,7 +93,8 @@ enum EDataReceived {
     kStart,
     kNotFinish,
     kFinish,
-    kError
+    kError,
+    kRequest
 };
 
 //

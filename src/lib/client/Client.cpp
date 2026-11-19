@@ -245,11 +245,9 @@ Client::leave()
     m_screen->leave();
 
     if (m_enableClipboard) {
-        // send clipboards that we own and that have changed
+        // send clipboards that have changed
         for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-            if (m_ownClipboard[id]) {
-                sendClipboard(id);
-            }
+            sendClipboard(id);
         }
     }
 
@@ -397,9 +395,16 @@ static std::string extractLocalFileFromClipboard(const IClipboard& cb) {
     std::istringstream stream(text);
     std::string line;
     while (std::getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ')) {
             line.pop_back();
         }
+        while (!line.empty() && line.front() == ' ') {
+            line.erase(line.begin());
+        }
+        if (line.empty()) {
+            continue;
+        }
+        std::string candidate;
         if (line.rfind("file://", 0) == 0) {
             std::string path = line.substr(7);
             std::string decoded;
@@ -412,9 +417,13 @@ static std::string extractLocalFileFromClipboard(const IClipboard& cb) {
                     decoded += path[i];
                 }
             }
-            if (DragInformation::isFileValid(decoded)) {
-                return decoded;
-            }
+            candidate = decoded;
+        } else if (line[0] == '/' || (line.length() >= 3 && isalpha(line[0]) && line[1] == ':' && (line[2] == '\\' || line[2] == '/'))) {
+            candidate = line;
+        }
+
+        if (!candidate.empty() && DragInformation::isFileValid(candidate)) {
+            return candidate;
         }
     }
     return "";
@@ -463,6 +472,7 @@ Client::sendClipboard(ClipboardID id)
                     m_lastSentClipboardFile = file;
                     LOG_INFO("Client clipboard has file \"%s\", sending to server...", file.c_str());
                     sendFileToServer(file.c_str());
+                    return;
                 }
             }
 
@@ -683,6 +693,9 @@ void Client::handle_clipboard_grabbed(const Event& event)
     m_ownClipboard[info.m_id]  = true;
     m_sentClipboard[info.m_id] = false;
     m_timeClipboard[info.m_id] = 0;
+    if (info.m_id == kClipboardClipboard) {
+        m_lastSentClipboardFile.clear();
+    }
 
     // if we're not the active screen then send the clipboard now,
     // otherwise we'll wait until we leave.

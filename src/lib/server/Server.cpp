@@ -408,9 +408,16 @@ static std::string extractLocalFileFromClipboard(const IClipboard& cb) {
     std::istringstream stream(text);
     std::string line;
     while (std::getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ')) {
             line.pop_back();
         }
+        while (!line.empty() && line.front() == ' ') {
+            line.erase(line.begin());
+        }
+        if (line.empty()) {
+            continue;
+        }
+        std::string candidate;
         if (line.rfind("file://", 0) == 0) {
             std::string path = line.substr(7);
             std::string decoded;
@@ -423,9 +430,13 @@ static std::string extractLocalFileFromClipboard(const IClipboard& cb) {
                     decoded += path[i];
                 }
             }
-            if (DragInformation::isFileValid(decoded)) {
-                return decoded;
-            }
+            candidate = decoded;
+        } else if (line[0] == '/' || (line.length() >= 3 && isalpha(line[0]) && line[1] == ':' && (line[2] == '\\' || line[2] == '/'))) {
+            candidate = line;
+        }
+
+        if (!candidate.empty() && DragInformation::isFileValid(candidate)) {
+            return candidate;
         }
     }
     return "";
@@ -473,9 +484,18 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 		if (m_active == m_primaryClient && m_enableClipboard) {
 			for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
 				ClipboardInfo& clipboard = m_clipboards[id];
-				if (clipboard.m_clipboardOwner == getName(m_primaryClient)) {
-					onClipboardChanged(m_primaryClient,
-						id, clipboard.m_clipboardSeqNum);
+				Clipboard currentClip;
+				if (m_primaryClient->getClipboard(id, &currentClip)) {
+					std::string currentData = currentClip.marshall();
+					if (currentData.size() <= m_maximumClipboardSize && currentData != clipboard.m_clipboardData) {
+						clipboard.m_clipboard = currentClip;
+						clipboard.m_clipboardData = currentData;
+						clipboard.m_clipboardOwner = getName(m_primaryClient);
+						++clipboard.m_clipboardSeqNum;
+						if (id == kClipboardClipboard) {
+							m_lastSentClipboardFile.clear();
+						}
+					}
 				}
 			}
 		}
@@ -492,22 +512,28 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 								forScreensaver);
 
 		if (m_enableClipboard) {
+			std::string fileToSend;
+			if (m_args.m_enableDragDrop && dst != m_primaryClient) {
+				fileToSend = extractLocalFileFromClipboard(m_clipboards[kClipboardClipboard].m_clipboard);
+			}
+
 			// send the clipboard data to new active screen
 			for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
 				// Hackity hackity hack
 				if (m_clipboards[id].m_clipboard.marshall().size() > m_maximumClipboardSize) {
 					continue;
 				}
+				// If clipboard has a local file to transfer, do NOT send raw local path to client!
+				if (id == kClipboardClipboard && !fileToSend.empty()) {
+					continue;
+				}
 				m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
 			}
 
-			if (m_args.m_enableDragDrop && dst != m_primaryClient) {
-				std::string file = extractLocalFileFromClipboard(m_clipboards[kClipboardClipboard].m_clipboard);
-				if (!file.empty() && file != m_lastSentClipboardFile && file != FileChunk::getLastReceivedFile()) {
-					m_lastSentClipboardFile = file;
-					LOG_INFO("Clipboard has file \"%s\", sending to \"%s\"...", file.c_str(), getName(dst).c_str());
-					sendFileToClient(file.c_str(), dst);
-				}
+			if (!fileToSend.empty() && fileToSend != m_lastSentClipboardFile && fileToSend != FileChunk::getLastReceivedFile()) {
+				m_lastSentClipboardFile = fileToSend;
+				LOG_INFO("Clipboard has file \"%s\", sending to \"%s\"...", fileToSend.c_str(), getName(dst).c_str());
+				sendFileToClient(fileToSend.c_str(), dst);
 			}
 		}
 
@@ -1241,12 +1267,21 @@ void Server::handle_clipboard_grabbed(const Event& event, BaseClientProxy* grabb
 	clipboard.m_clipboardOwner  = getName(grabber);
     clipboard.m_clipboardSeqNum = info.m_sequenceNumber;
 
-	// clear the clipboard data (since it's not known at this point)
-	if (clipboard.m_clipboard.open(0)) {
-		clipboard.m_clipboard.clear();
-		clipboard.m_clipboard.close();
-	}
-	clipboard.m_clipboardData = clipboard.m_clipboard.marshall();
+    if (grabber == m_primaryClient) {
+        if (m_primaryClient->getClipboard(info.m_id, &clipboard.m_clipboard)) {
+            clipboard.m_clipboardData = clipboard.m_clipboard.marshall();
+            if (info.m_id == kClipboardClipboard) {
+                m_lastSentClipboardFile.clear();
+            }
+        }
+    } else {
+        // clear the clipboard data (since it's not known at this point)
+        if (clipboard.m_clipboard.open(0)) {
+            clipboard.m_clipboard.clear();
+            clipboard.m_clipboard.close();
+        }
+        clipboard.m_clipboardData = clipboard.m_clipboard.marshall();
+    }
 
 	// tell all other screens to take ownership of clipboard.  tell the
 	// grabber that it's clipboard isn't dirty.

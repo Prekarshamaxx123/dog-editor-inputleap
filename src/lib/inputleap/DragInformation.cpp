@@ -108,22 +108,17 @@ DragInformation::setupDragInfo(DragFileList& fileList, std::string& output)
 
 bool DragInformation::isFileValid(std::string filename)
 {
-    bool result = false;
-    std::fstream file(filename.c_str(), std::ios::in|std::ios::binary);
-
-    if (file.is_open()) {
-        result = true;
+    if (filename.empty()) {
+        return false;
     }
-
-    file. close();
-
-    return result;
+    std::error_code ec;
+    return inputleap::fs::exists(inputleap::fs::u8path(filename), ec);
 }
 
 size_t DragInformation::stringToNum(std::string& str)
 {
     std::istringstream iss(str.c_str());
-    size_t size;
+    size_t size = 0;
     iss >> size;
     return size;
 }
@@ -131,7 +126,18 @@ size_t DragInformation::stringToNum(std::string& str)
 std::string DragInformation::getFileSize(std::string& filename)
 {
     std::error_code ec;
-    auto sz = inputleap::fs::file_size(inputleap::fs::u8path(filename), ec);
+    auto p = inputleap::fs::u8path(filename);
+    if (inputleap::fs::is_directory(p, ec)) {
+        size_t total = 0;
+        for (const auto& entry : inputleap::fs::recursive_directory_iterator(p, ec)) {
+            if (entry.is_regular_file(ec)) {
+                total += entry.file_size(ec);
+            }
+        }
+        return std::to_string(total > 0 ? total : 4096);
+    }
+
+    auto sz = inputleap::fs::file_size(p, ec);
     if (!ec) {
         return std::to_string(sz);
     }

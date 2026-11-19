@@ -1752,13 +1752,6 @@ Server::onMouseUp(ButtonID id)
 	}
 
 	if (m_args.m_enableDragDrop) {
-		if (!m_screen->isOnScreen()) {
-            std::string& file = m_screen->getDraggingFilename();
-			if (!file.empty()) {
-				sendFileToClient(file.c_str());
-			}
-		}
-
 		// always clear dragging filename
 		m_screen->clearDraggingFilename();
 	}
@@ -2335,8 +2328,20 @@ Server::sendFileToClient(const char* filename)
     }
 
     try {
+        std::string nameToSend = filename;
+        std::error_code ecDir;
+        if (inputleap::fs::is_directory(inputleap::fs::u8path(filename), ecDir)) {
+            std::string dirPath = filename;
+            while (!dirPath.empty() && (dirPath.back() == '/' || dirPath.back() == '\\')) {
+                dirPath.pop_back();
+            }
+            size_t lastSlash = dirPath.find_last_of("/\\");
+            std::string dirName = (lastSlash != std::string::npos) ? dirPath.substr(lastSlash + 1) : dirPath;
+            nameToSend = dirName + "__inputleap_folder__.tar.gz";
+        }
+
         DragInformation di;
-        di.setFilename(filename);
+        di.setFilename(nameToSend);
         DragFileList list;
         list.push_back(di);
         std::string infoString;
@@ -2405,8 +2410,20 @@ void Server::sendFileInfoToClient(const char* filename)
     }
 
     try {
+        std::string nameToSend = filename;
+        std::error_code ecDir;
+        if (inputleap::fs::is_directory(inputleap::fs::u8path(filename), ecDir)) {
+            std::string dirPath = filename;
+            while (!dirPath.empty() && (dirPath.back() == '/' || dirPath.back() == '\\')) {
+                dirPath.pop_back();
+            }
+            size_t lastSlash = dirPath.find_last_of("/\\");
+            std::string dirName = (lastSlash != std::string::npos) ? dirPath.substr(lastSlash + 1) : dirPath;
+            nameToSend = dirName + "__inputleap_folder__.tar.gz";
+        }
+
         DragInformation di;
-        di.setFilename(filename);
+        di.setFilename(nameToSend);
         DragFileList list;
         list.push_back(di);
         std::string infoString;

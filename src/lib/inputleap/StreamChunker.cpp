@@ -65,11 +65,36 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
     s_interruptFile = false;
     s_queuedChunks.store(0);
 
+    std::string actualFileToSend = filename;
+    std::string tempArchiveToCleanup;
+    std::error_code ecDir;
+    if (inputleap::fs::is_directory(inputleap::fs::u8path(filename), ecDir)) {
+        std::string dirPath = filename;
+        while (!dirPath.empty() && (dirPath.back() == '/' || dirPath.back() == '\\')) {
+            dirPath.pop_back();
+        }
+        size_t lastSlash = dirPath.find_last_of("/\\");
+        std::string parentDir = (lastSlash != std::string::npos) ? dirPath.substr(0, lastSlash) : ".";
+        std::string dirName = (lastSlash != std::string::npos) ? dirPath.substr(lastSlash + 1) : dirPath;
+
+        std::string tempArchive = "/tmp/.inputleap_folder_" + dirName + "__inputleap_folder__.tar.gz";
+        std::string tarCmd = "tar -czf '" + tempArchive + "' -C '" + parentDir + "' '" + dirName + "' >/dev/null 2>&1";
+        int r = system(tarCmd.c_str());
+        if (r == 0 && inputleap::fs::exists(inputleap::fs::u8path(tempArchive), ecDir)) {
+            actualFileToSend = tempArchive;
+            tempArchiveToCleanup = tempArchive;
+            LOG_INFO("Archived directory \"%s\" into \"%s\" for transfer", filename, tempArchive.c_str());
+        }
+    }
+
     std::fstream file;
-    open_utf8_path(file, filename, std::ios::in | std::ios::binary);
+    open_utf8_path(file, actualFileToSend, std::ios::in | std::ios::binary);
 
     if (!file.is_open()) {
         s_isChunkingFile = false;
+        if (!tempArchiveToCleanup.empty()) {
+            std::remove(tempArchiveToCleanup.c_str());
+        }
         throw std::runtime_error("failed to open file");
     }
 
@@ -78,7 +103,7 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
     size_t size = static_cast<size_t>(file.tellg());
     file.seekg(0, std::ios::beg);
 
-    LOG_INFO("starting stream of file \"%s\" (%zu bytes)", filename, size);
+    LOG_INFO("starting stream of file \"%s\" (%zu bytes)", actualFileToSend.c_str(), size);
 
     // send first message (file size)
     auto size_message = FileChunk::start(size);
@@ -173,6 +198,9 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
                       create_event_data<FileChunk>(end));
 
     file.close();
+    if (!tempArchiveToCleanup.empty()) {
+        std::remove(tempArchiveToCleanup.c_str());
+    }
     s_isChunkingFile = false;
     LOG_INFO("completed stream of file \"%s\" (%zu bytes sent)", filename, sentLength);
 }

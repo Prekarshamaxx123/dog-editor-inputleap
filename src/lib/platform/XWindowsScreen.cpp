@@ -451,61 +451,6 @@ XWindowsScreen::isPrimary() const
 std::string&
 XWindowsScreen::getDraggingFilename()
 {
-    if (!m_draggingFilename.empty()) {
-        return m_draggingFilename;
-    }
-
-    ClipboardID clipboards[] = { kClipboardClipboard, kClipboardSelection };
-    for (int i = 0; i < 2; ++i) {
-        ClipboardID id = clipboards[i];
-        if (m_clipboard[id] == nullptr) {
-            continue;
-        }
-
-        std::unique_ptr<IClipboard> cb(new Clipboard());
-        Time timestamp = XWindowsUtil::getCurrentTime(m_display, m_clipboard[id]->getWindow());
-        if (Clipboard::copy(cb.get(), m_clipboard[id], timestamp)) {
-            std::string data;
-            if (cb->open(timestamp)) {
-                if (cb->has(IClipboard::kText)) {
-                    data = cb->get(IClipboard::kText);
-                }
-                cb->close();
-            }
-
-            if (!data.empty()) {
-                std::istringstream stream(data);
-                std::string line;
-                while (std::getline(stream, line)) {
-                    if (!line.empty() && line.back() == '\r') {
-                        line.pop_back();
-                    }
-                    if (line.rfind("file://", 0) == 0) {
-                        std::string path = line.substr(7);
-                        std::string decodedPath;
-                        for (size_t idx = 0; idx < path.length(); ++idx) {
-                            if (path[idx] == '%' && idx + 2 < path.length()) {
-                                char hex[3] = { path[idx + 1], path[idx + 2], 0 };
-                                char ch = static_cast<char>(std::strtol(hex, nullptr, 16));
-                                decodedPath += ch;
-                                idx += 2;
-                            } else {
-                                decodedPath += path[idx];
-                            }
-                        }
-                        if (DragInformation::isFileValid(decodedPath)) {
-                            m_draggingFilename = decodedPath;
-                            return m_draggingFilename;
-                        }
-                    } else if (!line.empty() && line[0] == '/' && DragInformation::isFileValid(line)) {
-                        m_draggingFilename = line;
-                        return m_draggingFilename;
-                    }
-                }
-            }
-        }
-    }
-
     return m_draggingFilename;
 }
 

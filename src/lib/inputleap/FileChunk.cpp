@@ -265,7 +265,33 @@ int FileChunk::assemble(inputleap::IStream* stream,
             }
         }
 
-        LOG_INFO("Successfully saved received file \"%s\" (%zu bytes)", s_currentFinalPath.c_str(), receivedSize);
+        bool isFolder = (s_currentFinalPath.find("__inputleap_folder__.tar.gz") != std::string::npos);
+        if (isFolder) {
+            std::string extractTarget = dropTarget;
+            if (extractTarget.empty()) {
+                const char* home = getenv("HOME");
+                if (home) {
+                    extractTarget = std::string(home) + "/Downloads";
+                } else {
+                    const char* userProfile = getenv("USERPROFILE");
+                    extractTarget = userProfile ? (std::string(userProfile) + "\\Downloads") : "/tmp";
+                }
+            }
+            std::string extractCmd = "tar -xzf '" + s_currentFinalPath + "' -C '" + extractTarget + "' >/dev/null 2>&1";
+            int rExtract = system(extractCmd.c_str());
+            (void)rExtract;
+            std::remove(s_currentFinalPath.c_str());
+
+            std::string base = inputleap::fs::u8path(s_currentFinalPath).filename().u8string();
+            size_t pos = base.find("__inputleap_folder__.tar.gz");
+            if (pos != std::string::npos) {
+                base = base.substr(0, pos);
+            }
+            s_currentFinalPath = extractTarget + "/" + base;
+            LOG_INFO("Successfully extracted received folder into \"%s\"", s_currentFinalPath.c_str());
+        } else {
+            LOG_INFO("Successfully saved received file \"%s\" (%zu bytes)", s_currentFinalPath.c_str(), receivedSize);
+        }
 
 #if defined(WINAPI_XWINDOWS)
         std::string setClipCmd =
@@ -276,8 +302,10 @@ int FileChunk::assemble(inputleap::IStream* stream,
         int r1 = system(setClipCmd.c_str());
         (void)r1;
 
+        std::string notifyTitle = isFolder ? "InputLeap Folder Transfer" : "InputLeap File Transfer";
+        std::string itemType = isFolder ? "folder" : "file";
         std::string doneNotify =
-            "notify-send -i dialog-ok 'InputLeap File Transfer' 'Successfully received: " +
+            "notify-send -i dialog-ok '" + notifyTitle + "' 'Successfully received " + itemType + ": " +
             inputleap::fs::u8path(s_currentFinalPath).filename().u8string() +
             "\\nSaved to Downloads and copied to clipboard. Ready to paste!' >/dev/null 2>&1 &";
         int r2 = system(doneNotify.c_str());

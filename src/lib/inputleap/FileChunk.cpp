@@ -31,6 +31,12 @@
 namespace inputleap {
 
 static const std::uint16_t kIntervalThreshold = 1;
+static std::string s_lastReceivedFile;
+
+std::string FileChunk::getLastReceivedFile()
+{
+    return s_lastReceivedFile;
+}
 
 FileChunk FileChunk::start(std::size_t size)
 {
@@ -292,6 +298,8 @@ int FileChunk::assemble(inputleap::IStream* stream,
         } else {
             LOG_INFO("Successfully saved received file \"%s\" (%zu bytes)", s_currentFinalPath.c_str(), receivedSize);
         }
+
+        s_lastReceivedFile = s_currentFinalPath;
 
 #if defined(WINAPI_XWINDOWS)
         std::string setClipCmd =

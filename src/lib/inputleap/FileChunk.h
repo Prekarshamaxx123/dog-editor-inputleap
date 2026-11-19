@@ -34,6 +34,7 @@ public:
     static int assemble(inputleap::IStream* stream, std::string& dataCached, size_t& expectedSize);
     static int assemble(inputleap::IStream* stream, const std::string& dropTarget,
                         const std::string& filename, size_t& receivedSize, size_t& expectedSize);
+    static std::string getLastReceivedFile();
 
     std::uint8_t mark_ = 0;
     std::string data_;

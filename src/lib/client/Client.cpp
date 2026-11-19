@@ -418,8 +418,6 @@ static std::string extractLocalFileFromClipboard(const IClipboard& cb) {
             if (DragInformation::isFileValid(decoded)) {
                 return decoded;
             }
-        } else if (!line.empty() && line[0] == '/' && DragInformation::isFileValid(line)) {
-            return line;
         }
     }
     return "";
@@ -464,15 +462,10 @@ Client::sendClipboard(ClipboardID id)
 
             if (m_args.m_enableDragDrop && id == kClipboardClipboard) {
                 std::string file = extractLocalFileFromClipboard(clipboard);
-                if (!file.empty()) {
-                    if (file != m_stagedClipboardFile) {
-                        m_stagedClipboardFile = file;
-                        LOG_INFO("Client staged clipboard file \"%s\" for on-demand paste", file.c_str());
-                        sendFileInfoToServer(file.c_str());
-                    }
-                    return;
-                } else {
-                    m_stagedClipboardFile.clear();
+                if (!file.empty() && file != m_lastSentClipboardFile && file != FileChunk::getLastReceivedFile()) {
+                    m_lastSentClipboardFile = file;
+                    LOG_INFO("Client clipboard has file \"%s\", sending to server...", file.c_str());
+                    sendFileToServer(file.c_str());
                 }
             }
 
@@ -791,13 +784,6 @@ void Client::write_to_drop_dir_thread()
 {
     LOG_INFO("File receive completed and verified on disk.");
     m_dragFileList.clear();
-
-    if (m_pastingPendingRemoteFile) {
-        m_pastingPendingRemoteFile = false;
-        m_pendingRemoteFile.clear();
-        int r = system("sleep 0.2 && (which xdotool >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v) >/dev/null 2>&1 &");
-        (void)r;
-    }
 }
 
 void Client::dragInfoReceived(std::uint32_t fileNum, std::string data)
@@ -809,11 +795,6 @@ void Client::dragInfoReceived(std::uint32_t fileNum, std::string data)
     }
 
     DragInformation::parseDragInfo(m_dragFileList, fileNum, data);
-    if (!m_dragFileList.empty()) {
-        m_pendingRemoteFile = m_dragFileList.at(0).getFilename();
-        LOG_INFO("Client registered pending remote file \"%s\" for on-demand paste", m_pendingRemoteFile.c_str());
-    }
-
     m_screen->startDraggingFiles(m_dragFileList);
 }
 

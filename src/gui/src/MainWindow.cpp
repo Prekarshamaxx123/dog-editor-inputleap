@@ -140,13 +140,20 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
     // explicitly unset DeleteOnClose so the window can be show and hidden
     // repeatedly until InputLeap is finished
     setAttribute(Qt::WA_DeleteOnClose, false);
-    // mark the windows as sort of "dialog" window so that tiling window
-    // managers will float it by default (X11)
-    setAttribute(Qt::WA_X11NetWmWindowTypeDialog, true);
-    setAttribute(Qt::WA_OpaquePaintEvent, true);
+    setAttribute(Qt::WA_X11NetWmWindowTypeDialog, false);
+    setAttribute(Qt::WA_OpaquePaintEvent, false);
     setAutoFillBackground(true);
 
     ui_->setupUi(this);
+    setStyleSheet("QMainWindow, QWidget#centralwidget { background-color: rgb(35, 37, 46); }");
+
+    QPalette pal = palette();
+    pal.setColor(QPalette::Window, QColor(35, 37, 46, 255));
+    pal.setColor(QPalette::Base, QColor(35, 37, 46, 255));
+    setPalette(pal);
+    ui_->centralwidget->setAutoFillBackground(true);
+    ui_->centralwidget->setPalette(pal);
+
     setWindowIcon(QIcon(APP_LARGE_ICON));
     createMenuBar();
     loadSettings();
@@ -182,9 +189,6 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
 #if defined(Q_OS_MAC)
     resize(720, 550);
     setMinimumSize(720, 0);
-#elif defined(Q_OS_LINUX)
-    resize(700, 530);
-    setMinimumSize(700, 0);
 #endif
 
     m_SuppressAutoConfigWarning = true;
@@ -210,10 +214,11 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
             ui_->frame_fingerprint_details->hide();
             ui_->toolbutton_show_fingerprint->setArrowType(Qt::ArrowType::DownArrow);
         }
+        adjustSize();
     });
 
     // resize window to smallest reasonable size
-    resize(0, 0);
+    adjustSize();
 }
 
 MainWindow::~MainWindow()

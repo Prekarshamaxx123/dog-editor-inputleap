@@ -18,8 +18,9 @@ FileManagerDialog::FileManagerDialog(FileTransferService* service, QWidget* pare
 {
     ui->setupUi(this);
 
-    setAttribute(Qt::WA_OpaquePaintEvent, true);
+    setAttribute(Qt::WA_OpaquePaintEvent, false);
     setAutoFillBackground(true);
+    setStyleSheet("QDialog { background-color: rgb(35, 37, 46); }");
 
     // Ensure layout gives all vertical space to the dual-pane splitter
     ui->verticalLayout->setStretch(0, 0);

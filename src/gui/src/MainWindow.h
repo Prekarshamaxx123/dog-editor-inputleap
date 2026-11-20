@@ -60,6 +60,11 @@ class DataDownloader;
 class CommandProcess;
 class SslCertificate;
 
+namespace inputleap {
+class FileTransferService;
+class FileManagerDialog;
+}
+
 namespace Ui
 {
     class MainWindow;
@@ -195,8 +200,14 @@ public slots:
         LogWindow *m_pLogWindow;
 
         bool m_fingerprint_expanded = false;
+        inputleap::FileTransferService* m_pFileTransferService = nullptr;
+        inputleap::FileManagerDialog* m_pFileManagerDialog = nullptr;
 
 private slots:
+    void on_m_pButtonFileManager_clicked();
+    void onFileServiceDeviceConnected(const QString& name, const QString& ip);
+    void onFileServiceDeviceDisconnected(const QString& name, const QString& ip);
+    void updateFileManagerButton();
     void on_m_pCheckBoxAutoConfig_toggled(bool checked);
     void comboServerList_currentIndexChanged(QString );
     void on_m_pButtonReload_clicked();

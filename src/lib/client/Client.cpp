@@ -459,16 +459,6 @@ Client::sendClipboard(ClipboardID id)
             m_sentClipboard[id] = true;
             m_dataClipboard[id] = data;
 
-            if (m_args.m_enableDragDrop && id == kClipboardClipboard) {
-                std::string file = extractLocalFileFromClipboard(clipboard);
-                if (!file.empty() && file != m_lastSentClipboardFile && file != FileChunk::getLastReceivedFile()) {
-                    m_lastSentClipboardFile = file;
-                    LOG_INFO("Client clipboard has file \"%s\", sending to server...", file.c_str());
-                    sendFileToServer(file.c_str());
-                    return;
-                }
-            }
-
             m_server->onClipboardChanged(id, &clipboard);
         }
     }

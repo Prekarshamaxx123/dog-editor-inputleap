@@ -520,28 +520,13 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 								forScreensaver);
 
 		if (m_enableClipboard) {
-			std::string fileToSend;
-			if (m_args.m_enableDragDrop && dst != m_primaryClient) {
-				fileToSend = extractLocalFileFromClipboard(m_clipboards[kClipboardClipboard].m_clipboard);
-			}
-
 			// send the clipboard data to new active screen
 			for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
 				// Hackity hackity hack
 				if (m_clipboards[id].m_clipboard.marshall().size() > m_maximumClipboardSize) {
 					continue;
 				}
-				// If clipboard has a local file to transfer, do NOT send raw local path to client!
-				if (id == kClipboardClipboard && !fileToSend.empty()) {
-					continue;
-				}
 				m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
-			}
-
-			if (!fileToSend.empty() && fileToSend != m_lastSentClipboardFile && fileToSend != FileChunk::getLastReceivedFile()) {
-				m_lastSentClipboardFile = fileToSend;
-				LOG_INFO("Clipboard has file \"%s\", sending to \"%s\"...", fileToSend.c_str(), getName(dst).c_str());
-				sendFileToClient(fileToSend.c_str(), dst);
 			}
 		}
 

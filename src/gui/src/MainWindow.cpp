@@ -31,6 +31,8 @@
 #include "QUtility.h"
 #include "ProcessorArch.h"
 #include "SslCertificate.h"
+#include "FileTransferService.h"
+#include "FileManagerDialog.h"
 #include "base/String.h"
 #include "common/DataDirectories.h"
 #include "net/FingerprintDatabase.h"
@@ -150,6 +152,21 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
 
     ui_->m_pLabelScreenName->setText(getScreenName());
     ui_->m_pLabelIpAddresses->setText(getIPAddresses());
+
+    ui_->m_pButtonFileManager->setIcon(style()->standardIcon(QStyle::SP_FileDialogStart));
+    ui_->m_pButtonFileManager->setVisible(false);
+    connect(ui_->m_pButtonFileManager, &QPushButton::clicked, this, &MainWindow::on_m_pButtonFileManager_clicked);
+
+    m_pFileTransferService = new inputleap::FileTransferService(this);
+    m_pFileTransferService->setLocalDeviceName(getScreenName());
+    m_pFileTransferService->startServer(24802);
+
+    connect(m_pFileTransferService, &inputleap::FileTransferService::deviceConnected,
+            this, &MainWindow::onFileServiceDeviceConnected);
+    connect(m_pFileTransferService, &inputleap::FileTransferService::deviceDisconnected,
+            this, &MainWindow::onFileServiceDeviceDisconnected);
+
+    m_pFileManagerDialog = new inputleap::FileManagerDialog(m_pFileTransferService, this);
 
 #if defined(Q_OS_WIN)
     // ipc must always be enabled, so that we can disable command when switching to desktop mode.
@@ -459,9 +476,18 @@ void MainWindow::checkConnected(const QString& line)
     // TODO: implement ipc connection state messages to replace this hack.
     if (line.contains("started server") ||
         line.contains("connected to server") ||
-        line.contains("server status: active"))
+        line.contains("server status: active") ||
+        line.contains("has connected"))
     {
         set_connection_state(AppConnectionState::CONNECTED);
+
+        if (app_role() == AppRole::Client) {
+            QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
+            if (!srvIp.isEmpty() && m_pFileTransferService) {
+                m_pFileTransferService->connectToDevice(srvIp, 24802);
+            }
+        }
+        updateFileManagerButton();
 
         if (!appConfig().startedBefore() && isVisible()) {
                 QMessageBox::information(
@@ -955,6 +981,7 @@ void MainWindow::set_connection_state(AppConnectionState state)
     set_icon(state);
 
     connection_state_ = state;
+    updateFileManagerButton();
 }
 
 void MainWindow::setVisible(bool visible)
@@ -1463,3 +1490,57 @@ void MainWindow::showLogWindow()
 {
     m_pLogWindow->show();
 }
+
+void MainWindow::on_m_pButtonFileManager_clicked()
+{
+    if (!m_pFileManagerDialog) {
+        m_pFileManagerDialog = new inputleap::FileManagerDialog(m_pFileTransferService, this);
+    }
+    m_pFileManagerDialog->refreshDeviceList();
+    m_pFileManagerDialog->show();
+    m_pFileManagerDialog->raise();
+    m_pFileManagerDialog->activateWindow();
+}
+
+void MainWindow::onFileServiceDeviceConnected(const QString& name, const QString& ip)
+{
+    appendLogInfo(QString("File Manager: Remote device connected: %1 (%2)").arg(name, ip));
+    updateFileManagerButton();
+}
+
+void MainWindow::onFileServiceDeviceDisconnected(const QString& name, const QString& ip)
+{
+    appendLogInfo(QString("File Manager: Remote device disconnected: %1 (%2)").arg(name, ip));
+    updateFileManagerButton();
+}
+
+void MainWindow::updateFileManagerButton()
+{
+    if (!ui_->m_pButtonFileManager || !m_pFileTransferService) {
+        return;
+    }
+
+    auto devs = m_pFileTransferService->getConnectedDevices();
+    if (!devs.isEmpty()) {
+        ui_->m_pButtonFileManager->setVisible(true);
+        ui_->m_pButtonFileManager->setEnabled(true);
+        if (devs.size() == 1) {
+            ui_->m_pButtonFileManager->setText(QString("File Manager (Connected: %1)").arg(devs.first().name));
+        } else {
+            ui_->m_pButtonFileManager->setText(QString("File Manager (%1 Devices Connected)").arg(devs.size()));
+        }
+    } else if (connection_state_ == AppConnectionState::CONNECTED) {
+        if (app_role() == AppRole::Client) {
+            QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
+            if (!srvIp.isEmpty()) {
+                m_pFileTransferService->connectToDevice(srvIp, 24802);
+            }
+        }
+        ui_->m_pButtonFileManager->setVisible(true);
+        ui_->m_pButtonFileManager->setEnabled(true);
+        ui_->m_pButtonFileManager->setText("File Manager (File Share)");
+    } else {
+        ui_->m_pButtonFileManager->setVisible(false);
+    }
+}
+

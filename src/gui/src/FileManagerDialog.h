@@ -29,6 +29,7 @@ protected:
 private slots:
     void onDeviceSelected(int index);
     void onRefreshDevicesClicked();
+    void onAddDeviceClicked();
 
     // Local site navigation
     void onLocalNavigate();

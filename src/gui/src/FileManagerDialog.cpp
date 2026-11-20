@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QInputDialog>
 
 namespace inputleap {
 
@@ -16,6 +17,19 @@ FileManagerDialog::FileManagerDialog(FileTransferService* service, QWidget* pare
     , m_service(service)
 {
     ui->setupUi(this);
+
+    setAttribute(Qt::WA_OpaquePaintEvent, true);
+    setAutoFillBackground(true);
+
+    // Ensure layout gives all vertical space to the dual-pane splitter
+    ui->verticalLayout->setStretch(0, 0);
+    ui->verticalLayout->setStretch(1, 1);
+    ui->verticalLayout->setStretch(2, 0);
+
+    // Balance the local and remote file panes
+    ui->splitter->setStretchFactor(0, 5);
+    ui->splitter->setStretchFactor(1, 0);
+    ui->splitter->setStretchFactor(2, 5);
 
     // Apply standard OS icons (zero emojis)
     setupIcons();
@@ -39,6 +53,7 @@ FileManagerDialog::FileManagerDialog(FileTransferService* service, QWidget* pare
     // Connect UI signals
     connect(ui->comboDevices, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &FileManagerDialog::onDeviceSelected);
     connect(ui->btnRefreshDevices, &QPushButton::clicked, this, &FileManagerDialog::onRefreshDevicesClicked);
+    connect(ui->btnAddDevice, &QPushButton::clicked, this, &FileManagerDialog::onAddDeviceClicked);
 
     // Local buttons
     connect(ui->btnLocalUp, &QPushButton::clicked, this, &FileManagerDialog::onLocalUpClicked);
@@ -91,6 +106,7 @@ void FileManagerDialog::setupIcons()
     ui->btnDownload->setIcon(style()->standardIcon(QStyle::SP_ArrowLeft));
 
     ui->btnRefreshDevices->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    ui->btnAddDevice->setIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
     ui->btnCancelTransfer->setIcon(style()->standardIcon(QStyle::SP_DialogCancelButton));
     ui->btnClose->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
 }
@@ -98,6 +114,9 @@ void FileManagerDialog::setupIcons()
 void FileManagerDialog::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
+    if (m_service) {
+        m_service->broadcastDiscovery();
+    }
     refreshDeviceList();
     populateLocalDirectory(m_currentLocalPath);
 }
@@ -163,7 +182,37 @@ void FileManagerDialog::onDeviceSelected(int index)
 
 void FileManagerDialog::onRefreshDevicesClicked()
 {
+    ui->lblTransferStatus->setText("Discovering remote devices...");
+    if (m_service) {
+        m_service->broadcastDiscovery();
+    }
     refreshDeviceList();
+    QTimer::singleShot(350, this, [this]() {
+        refreshDeviceList();
+        ui->lblTransferStatus->setText("Ready");
+    });
+}
+
+void FileManagerDialog::onAddDeviceClicked()
+{
+    bool ok = false;
+    QString ip = QInputDialog::getText(this, tr("Direct Connect"),
+                                       tr("Enter Remote IP Address (e.g. 192.168.8.194):"),
+                                       QLineEdit::Normal, QString(), &ok);
+    if (ok && !ip.trimmed().isEmpty()) {
+        QString clean = ip.trimmed();
+        if (clean.contains(':')) {
+            clean = clean.section(':', 0, 0);
+        }
+        if (m_service) {
+            ui->lblTransferStatus->setText(QString("Connecting to %1...").arg(clean));
+            m_service->connectToDevice(clean, 24802);
+            QTimer::singleShot(500, this, [this]() {
+                refreshDeviceList();
+                ui->lblTransferStatus->setText("Ready");
+            });
+        }
+    }
 }
 
 void FileManagerDialog::onDeviceConnected(const QString&, const QString&)
@@ -338,12 +387,28 @@ void FileManagerDialog::populateRemoteDirectory(const QJsonArray& items)
         .arg(dirCount)
         .arg(formatFileSize(totalBytes)));
     ui->lblTransferStatus->setText("Ready");
+    ui->tableRemote->viewport()->update();
+    QCoreApplication::processEvents();
 }
 
 void FileManagerDialog::onDirectoryListed(const QString& host, const QString& path, const QString& parent, const QJsonArray& items)
 {
-    if (host != m_selectedDeviceIp && !m_selectedDeviceIp.isEmpty()) {
-        return;
+    QString cleanHost = host;
+    if (cleanHost.startsWith("::ffff:")) cleanHost = cleanHost.mid(7);
+    QString cleanSelected = m_selectedDeviceIp;
+    if (cleanSelected.startsWith("::ffff:")) cleanSelected = cleanSelected.mid(7);
+
+    if (!cleanSelected.isEmpty() && !cleanHost.isEmpty() && cleanHost != cleanSelected) {
+        bool match = false;
+        if (m_service) {
+            for (const auto& dev : m_service->getConnectedDevices()) {
+                if ((dev.ip == cleanHost || dev.name == host) && (dev.ip == cleanSelected || dev.name == cleanSelected)) {
+                    match = true;
+                    break;
+                }
+            }
+        }
+        if (!match) return;
     }
 
     m_currentRemotePath = path;

@@ -14,6 +14,21 @@
    <string>File Manager - File Share</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>6</number>
+   </property>
+   <property name="leftMargin">
+    <number>9</number>
+   </property>
+   <property name="topMargin">
+    <number>9</number>
+   </property>
+   <property name="rightMargin">
+    <number>9</number>
+   </property>
+   <property name="bottomMargin">
+    <number>9</number>
+   </property>
    <item>
     <layout class="QHBoxLayout" name="deviceBarLayout">
      <item>
@@ -47,6 +62,16 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="btnAddDevice">
+       <property name="text">
+        <string>Direct Connect...</string>
+       </property>
+       <property name="toolTip">
+        <string>Directly connect to a remote IP address</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <spacer name="spacerDevice">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
@@ -70,10 +95,22 @@
    </item>
    <item>
     <widget class="QSplitter" name="splitter">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>1</verstretch>
+      </sizepolicy>
+     </property>
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
      </property>
      <widget class="QGroupBox" name="groupLocal">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>1</horstretch>
+        <verstretch>1</verstretch>
+       </sizepolicy>
+      </property>
       <property name="title">
        <string>Local site</string>
       </property>
@@ -108,6 +145,12 @@
        </item>
        <item>
         <widget class="QTableWidget" name="tableLocal">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>1</verstretch>
+          </sizepolicy>
+         </property>
          <property name="selectionBehavior">
           <enum>QAbstractItemView::SelectRows</enum>
          </property>
@@ -208,6 +251,12 @@
       </layout>
      </widget>
      <widget class="QGroupBox" name="groupRemote">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>1</horstretch>
+        <verstretch>1</verstretch>
+       </sizepolicy>
+      </property>
       <property name="title">
        <string>Remote site</string>
       </property>
@@ -242,6 +291,12 @@
        </item>
        <item>
         <widget class="QTableWidget" name="tableRemote">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>1</verstretch>
+          </sizepolicy>
+         </property>
          <property name="selectionBehavior">
           <enum>QAbstractItemView::SelectRows</enum>
          </property>

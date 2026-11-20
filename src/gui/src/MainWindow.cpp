@@ -143,6 +143,8 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
     // mark the windows as sort of "dialog" window so that tiling window
     // managers will float it by default (X11)
     setAttribute(Qt::WA_X11NetWmWindowTypeDialog, true);
+    setAttribute(Qt::WA_OpaquePaintEvent, true);
+    setAutoFillBackground(true);
 
     ui_->setupUi(this);
     setWindowIcon(QIcon(APP_LARGE_ICON));
@@ -483,9 +485,18 @@ void MainWindow::checkConnected(const QString& line)
 
         if (app_role() == AppRole::Client) {
             QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
+            if (srvIp.isEmpty() && ui_->m_pComboServerList->count() > 0) {
+                srvIp = ui_->m_pComboServerList->currentText().trimmed();
+            }
+            if (srvIp.contains(':')) {
+                srvIp = srvIp.section(':', 0, 0);
+            }
             if (!srvIp.isEmpty() && m_pFileTransferService) {
                 m_pFileTransferService->connectToDevice(srvIp, 24802);
             }
+        }
+        if (m_pFileTransferService) {
+            m_pFileTransferService->broadcastDiscovery();
         }
         updateFileManagerButton();
 
@@ -1493,6 +1504,21 @@ void MainWindow::showLogWindow()
 
 void MainWindow::on_m_pButtonFileManager_clicked()
 {
+    if (m_pFileTransferService) {
+        m_pFileTransferService->broadcastDiscovery();
+        if (app_role() == AppRole::Client) {
+            QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
+            if (srvIp.isEmpty() && ui_->m_pComboServerList->count() > 0) {
+                srvIp = ui_->m_pComboServerList->currentText().trimmed();
+            }
+            if (srvIp.contains(':')) {
+                srvIp = srvIp.section(':', 0, 0);
+            }
+            if (!srvIp.isEmpty()) {
+                m_pFileTransferService->connectToDevice(srvIp, 24802);
+            }
+        }
+    }
     if (!m_pFileManagerDialog) {
         m_pFileManagerDialog = new inputleap::FileManagerDialog(m_pFileTransferService, this);
     }
@@ -1532,15 +1558,23 @@ void MainWindow::updateFileManagerButton()
     } else if (connection_state_ == AppConnectionState::CONNECTED) {
         if (app_role() == AppRole::Client) {
             QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
+            if (srvIp.isEmpty() && ui_->m_pComboServerList->count() > 0) {
+                srvIp = ui_->m_pComboServerList->currentText().trimmed();
+            }
+            if (srvIp.contains(':')) {
+                srvIp = srvIp.section(':', 0, 0);
+            }
             if (!srvIp.isEmpty()) {
                 m_pFileTransferService->connectToDevice(srvIp, 24802);
             }
         }
+        m_pFileTransferService->broadcastDiscovery();
         ui_->m_pButtonFileManager->setVisible(true);
         ui_->m_pButtonFileManager->setEnabled(true);
         ui_->m_pButtonFileManager->setText("File Manager (File Share)");
     } else {
         ui_->m_pButtonFileManager->setVisible(false);
     }
+    adjustSize();
 }
 

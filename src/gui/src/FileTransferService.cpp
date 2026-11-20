@@ -27,6 +27,7 @@ bool FileTransferService::startServer(quint16 port)
 {
     if (m_server && m_server->isListening()) {
         if (m_port == port) {
+            broadcastDiscovery();
             return true;
         }
         stopServer();
@@ -40,6 +41,13 @@ bool FileTransferService::startServer(quint16 port)
         qWarning() << "FileTransferService: Failed to listen on port" << m_port << ":" << m_server->errorString();
         return false;
     }
+
+    if (!m_udpSocket) {
+        m_udpSocket = new QUdpSocket(this);
+        m_udpSocket->bind(QHostAddress::AnyIPv4, m_udpPort, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint);
+        connect(m_udpSocket, &QUdpSocket::readyRead, this, &FileTransferService::onUdpReadyRead);
+    }
+    broadcastDiscovery();
 
     qDebug() << "FileTransferService: Listening on port" << m_port;
     return true;
@@ -59,6 +67,12 @@ void FileTransferService::stopServer()
     m_devices.clear();
     m_incomingBuffers.clear();
 
+    if (m_udpSocket) {
+        m_udpSocket->close();
+        m_udpSocket->deleteLater();
+        m_udpSocket = nullptr;
+    }
+
     if (m_server) {
         m_server->close();
         m_server->deleteLater();
@@ -70,6 +84,9 @@ void FileTransferService::onNewConnection()
 {
     while (m_server && m_server->hasPendingConnections()) {
         QTcpSocket* socket = m_server->nextPendingConnection();
+        socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+        socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
+
         QString ip = socket->peerAddress().toString();
         if (ip.startsWith("::ffff:")) {
             ip = ip.mid(7);
@@ -125,6 +142,8 @@ void FileTransferService::connectToDevice(const QString& host, quint16 port, con
     }
 
     QTcpSocket* socket = new QTcpSocket(this);
+    socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+    socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
 
     DeviceInfo dev;
     dev.ip = cleanHost;
@@ -136,6 +155,8 @@ void FileTransferService::connectToDevice(const QString& host, quint16 port, con
     m_incomingBuffers[socket] = QByteArray();
 
     connect(socket, &QTcpSocket::connected, this, [this, socket, cleanHost]() {
+        socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+        socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
         QJsonObject reg;
         reg["cmd"] = "register";
         reg["name"] = m_localName;
@@ -325,6 +346,7 @@ void FileTransferService::sendPacket(QTcpSocket* socket, const QJsonObject& json
     out << static_cast<quint32>(block.size() - sizeof(quint32));
 
     socket->write(block);
+    socket->flush();
 }
 
 void FileTransferService::handleRegister(QTcpSocket* socket, const QJsonObject& req)
@@ -711,6 +733,94 @@ void FileTransferService::handleDelete(QTcpSocket* socket, const QJsonObject& re
     resp["success"] = ok;
     if (!ok) resp["error"] = "Cannot delete item";
     sendPacket(socket, resp);
+}
+
+void FileTransferService::broadcastDiscovery()
+{
+    if (!m_udpSocket) {
+        return;
+    }
+
+    QJsonObject req;
+    req["cmd"] = "discover";
+    req["name"] = m_localName;
+    req["tcpPort"] = m_port;
+    QByteArray data = QJsonDocument(req).toJson(QJsonDocument::Compact);
+
+    // Broadcast on 255.255.255.255
+    m_udpSocket->writeDatagram(data, QHostAddress::Broadcast, m_udpPort);
+
+    // Also broadcast on subnet broadcast addresses
+    const auto interfaces = QNetworkInterface::allInterfaces();
+    for (const auto& iface : interfaces) {
+        if (!iface.flags().testFlag(QNetworkInterface::IsUp) ||
+            iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
+            continue;
+        }
+        for (const auto& entry : iface.addressEntries()) {
+            QHostAddress bcast = entry.broadcast();
+            if (!bcast.isNull() && bcast != QHostAddress::Broadcast) {
+                m_udpSocket->writeDatagram(data, bcast, m_udpPort);
+            }
+        }
+    }
+}
+
+void FileTransferService::onUdpReadyRead()
+{
+    while (m_udpSocket && m_udpSocket->hasPendingDatagrams()) {
+        QByteArray datagram;
+        datagram.resize(m_udpSocket->pendingDatagramSize());
+        QHostAddress sender;
+        quint16 senderPort = 0;
+        m_udpSocket->readDatagram(datagram.data(), datagram.size(), &sender, &senderPort);
+
+        QJsonDocument doc = QJsonDocument::fromJson(datagram);
+        if (!doc.isObject()) {
+            continue;
+        }
+
+        QJsonObject obj = doc.object();
+        QString cmd = obj.value("cmd").toString();
+        QString peerName = obj.value("name").toString();
+        quint16 peerTcpPort = static_cast<quint16>(obj.value("tcpPort").toInt(24802));
+
+        QString senderIp = sender.toString();
+        if (senderIp.startsWith("::ffff:")) {
+            senderIp = senderIp.mid(7);
+        }
+
+        // Avoid connecting to ourselves
+        if (peerName == m_localName) {
+            bool isLocal = false;
+            const auto addresses = QNetworkInterface::allAddresses();
+            for (const auto& addr : addresses) {
+                QString a = addr.toString();
+                if (a.startsWith("::ffff:")) a = a.mid(7);
+                if (a == senderIp) {
+                    isLocal = true;
+                    break;
+                }
+            }
+            if (isLocal) {
+                continue;
+            }
+        }
+
+        if (cmd == "discover") {
+            connectToDevice(senderIp, peerTcpPort, peerName);
+
+            // Send unicast response back to sender
+            QJsonObject ack;
+            ack["cmd"] = "discover_ack";
+            ack["name"] = m_localName;
+            ack["tcpPort"] = m_port;
+            QByteArray ackBytes = QJsonDocument(ack).toJson(QJsonDocument::Compact);
+            m_udpSocket->writeDatagram(ackBytes, sender, senderPort);
+        } else if (cmd == "discover_ack") {
+            connectToDevice(senderIp, peerTcpPort, peerName);
+        }
+    }
 }
 
 } // namespace inputleap

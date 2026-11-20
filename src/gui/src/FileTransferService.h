@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QUdpSocket>
+#include <QNetworkInterface>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -33,6 +35,7 @@ public:
 
     void connectToDevice(const QString& host, quint16 port = 24802, const QString& expectedName = QString());
     void disconnectDevice(const QString& host);
+    void broadcastDiscovery();
 
     QList<DeviceInfo> getConnectedDevices() const;
 
@@ -59,6 +62,7 @@ private slots:
     void onSocketReadyRead(QTcpSocket* socket);
     void onSocketDisconnected(QTcpSocket* socket);
     void onSocketError(QAbstractSocket::SocketError error, QTcpSocket* socket);
+    void onUdpReadyRead();
     void sendNextChunk();
 
 private:
@@ -78,7 +82,9 @@ private:
 
 private:
     QTcpServer* m_server = nullptr;
+    QUdpSocket* m_udpSocket = nullptr;
     quint16 m_port = 24802;
+    quint16 m_udpPort = 24803;
     QString m_localName;
 
     // Connected peers: key is IP or socket pointer

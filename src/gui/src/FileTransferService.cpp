@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QTimer>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QDebug>
 
 namespace inputleap {
@@ -313,7 +314,14 @@ void FileTransferService::onSocketReadyRead(QTcpSocket* socket)
         quint32 packetSize = 0;
         in >> packetSize;
 
-        if (static_cast<quint32>(buffer.size() - sizeof(quint32)) < packetSize) {
+        if (packetSize > 32 * 1024 * 1024) {
+            qWarning() << "FileTransferService: Oversized packet received:" << packetSize;
+            cleanupSocket(socket);
+            return;
+        }
+
+        quint32 totalPacketSize = sizeof(quint32) + packetSize;
+        if (static_cast<quint32>(buffer.size()) < totalPacketSize) {
             // Wait for more data to complete the packet
             break;
         }
@@ -323,8 +331,12 @@ void FileTransferService::onSocketReadyRead(QTcpSocket* socket)
         QByteArray extraBinary;
         in >> jsonBytes >> extraBinary;
 
-        // Remove processed packet bytes from buffer
-        buffer.remove(0, sizeof(quint32) + packetSize);
+        // Fast deallocation if exact packet size, otherwise remove
+        if (buffer.size() == static_cast<int>(totalPacketSize)) {
+            buffer.clear();
+        } else {
+            buffer.remove(0, totalPacketSize);
+        }
 
         QJsonDocument doc = QJsonDocument::fromJson(jsonBytes);
         if (!doc.isNull() && doc.isObject()) {
@@ -493,29 +505,44 @@ void FileTransferService::uploadItem(const QString& host, const QString& localPa
     m_isTransferring = true;
     m_bytesTransferred = 0;
 
-    QString fileToSend = localPath;
-
     if (m_activeIsFolder) {
-        // Create temporary tar archive for fast streaming
-        QString tempDir = QDir::tempPath() + "/dog_editor_transfer";
-        QDir().mkpath(tempDir);
-        m_activeTempArchive = tempDir + "/" + m_activeFilename + ".tar";
+        emit statusMessage("Archiving folder for transfer...");
+        QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/transfers";
+        QDir().mkpath(cacheDir);
+        m_activeTempArchive = cacheDir + "/" + m_activeFilename + "_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tar";
         QFile::remove(m_activeTempArchive);
 
-        QString tarCmd = QString("tar -cf \"%1\" -C \"%2\" \"%3\"")
-            .arg(m_activeTempArchive)
-            .arg(fi.absolutePath())
-            .arg(fi.fileName());
-        int r = system(tarCmd.toUtf8().constData());
-        if (r != 0 || !QFile::exists(m_activeTempArchive)) {
-            emit statusMessage("Failed to package folder for transfer");
-            cancelTransfer();
-            return;
-        }
-        fileToSend = m_activeTempArchive;
+        QProcess* proc = new QProcess(this);
+        m_activeProcess = proc;
+        connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this, socket, remoteDestDir](int exitCode, QProcess::ExitStatus exitStatus) {
+            if (m_activeProcess) {
+                m_activeProcess->deleteLater();
+                m_activeProcess = nullptr;
+            }
+            if (exitCode != 0 || exitStatus != QProcess::NormalExit || !QFile::exists(m_activeTempArchive)) {
+                emit statusMessage("Failed to package folder for transfer");
+                cancelTransfer();
+                return;
+            }
+            startSendingFile(socket, m_activeTempArchive, remoteDestDir);
+        });
+
+        proc->start("tar", QStringList() << "-cf" << m_activeTempArchive << "-C" << fi.absolutePath() << fi.fileName());
+        return;
     }
 
-    m_activeFile.setFileName(fileToSend);
+    startSendingFile(socket, localPath, remoteDestDir);
+}
+
+void FileTransferService::startSendingFile(QTcpSocket* socket, const QString& filePath, const QString& remoteDestDir)
+{
+    if (!m_isTransferring || !socket || socket->state() != QAbstractSocket::ConnectedState) {
+        cancelTransfer();
+        return;
+    }
+
+    m_activeFile.setFileName(filePath);
     if (!m_activeFile.open(QIODevice::ReadOnly)) {
         emit statusMessage("Failed to open local file for reading");
         cancelTransfer();
@@ -562,9 +589,9 @@ void FileTransferService::handlePutFileReq(QTcpSocket* socket, const QJsonObject
     QDir().mkpath(destDir);
 
     if (m_activeIsFolder) {
-        QString tempDir = QDir::tempPath() + "/dog_editor_transfer";
-        QDir().mkpath(tempDir);
-        m_activeTempArchive = tempDir + "/" + m_activeFilename + ".tar";
+        QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/transfers";
+        QDir().mkpath(cacheDir);
+        m_activeTempArchive = cacheDir + "/" + m_activeFilename + "_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tar";
         QFile::remove(m_activeTempArchive);
         m_activeFile.setFileName(m_activeTempArchive);
     } else {
@@ -640,7 +667,8 @@ void FileTransferService::sendNextChunk()
         return;
     }
 
-    // Flow control: keep socket write buffer below 256 KB
+    // Flow control: keep socket write buffer below 256 KB, burst up to 4 chunks then yield to event loop
+    int chunksSent = 0;
     while (m_activeTransferSocket && m_activeTransferSocket->state() == QAbstractSocket::ConnectedState &&
            m_activeTransferSocket->bytesToWrite() < 256 * 1024 && !m_activeFile.atEnd()) {
         QByteArray chunk = m_activeFile.read(kMaxChunkSize);
@@ -676,6 +704,13 @@ void FileTransferService::sendNextChunk()
             emit transferProgress(m_activeFilename, m_totalBytes, m_totalBytes, m_currentSpeed);
             break;
         }
+
+        chunksSent++;
+        if (chunksSent >= 4) {
+            // Yield to Qt event loop to ensure UI stays responsive
+            QTimer::singleShot(0, this, &FileTransferService::sendNextChunk);
+            break;
+        }
     }
 }
 
@@ -701,13 +736,39 @@ void FileTransferService::handleFileChunk(QTcpSocket* socket, const QJsonObject&
         m_activeFile.close();
 
         if (m_activeIsFolder && QFile::exists(m_activeTempArchive)) {
-            // Extract the tar archive directly into destination folder
-            QString untarCmd = QString("tar -xf \"%1\" -C \"%2\"")
-                .arg(m_activeTempArchive)
-                .arg(m_activeDestFolder);
-            system(untarCmd.toUtf8().constData());
-            QFile::remove(m_activeTempArchive);
-            m_activeTempArchive.clear();
+            emit statusMessage("Extracting folder archive...");
+            QProcess* proc = new QProcess(this);
+            m_activeProcess = proc;
+            connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [this, socket](int exitCode, QProcess::ExitStatus exitStatus) {
+                if (m_activeProcess) {
+                    m_activeProcess->deleteLater();
+                    m_activeProcess = nullptr;
+                }
+                if (QFile::exists(m_activeTempArchive)) {
+                    QFile::remove(m_activeTempArchive);
+                    m_activeTempArchive.clear();
+                }
+
+                if (exitCode != 0 || exitStatus != QProcess::NormalExit) {
+                    emit statusMessage("Failed to extract folder archive");
+                    emit transferFinished(m_activeFilename, false, "Extraction failed");
+                    cancelTransfer();
+                    return;
+                }
+
+                QJsonObject done;
+                done["cmd"] = "transfer_done";
+                done["success"] = true;
+                done["msg"] = "Transfer completed successfully";
+                sendPacket(socket, done);
+
+                emit transferFinished(m_activeFilename, true, "Transfer completed successfully");
+                cancelTransfer();
+            });
+
+            proc->start("tar", QStringList() << "-xf" << m_activeTempArchive << "-C" << m_activeDestFolder);
+            return;
         }
 
         QJsonObject done;
@@ -723,6 +784,12 @@ void FileTransferService::handleFileChunk(QTcpSocket* socket, const QJsonObject&
 
 void FileTransferService::cancelTransfer()
 {
+    if (m_activeProcess) {
+        m_activeProcess->kill();
+        m_activeProcess->deleteLater();
+        m_activeProcess = nullptr;
+    }
+
     if (m_activeTransferSocket && m_isTransferring) {
         QJsonObject cancelObj;
         cancelObj["cmd"] = "transfer_cancel";

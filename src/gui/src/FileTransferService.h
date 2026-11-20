@@ -16,6 +16,8 @@
 #include <QMap>
 #include <QPointer>
 
+class QProcess;
+
 namespace inputleap {
 
 struct DeviceInfo {
@@ -69,6 +71,7 @@ private slots:
 
 private:
     void cleanupSocket(QTcpSocket* socket);
+    void startSendingFile(QTcpSocket* socket, const QString& filePath, const QString& remoteDestDir);
     void processPacket(QTcpSocket* socket, const QByteArray& packet);
     void sendPacket(QTcpSocket* socket, const QJsonObject& json, const QByteArray& extraBinary = QByteArray());
 
@@ -106,6 +109,7 @@ private:
     QString m_activeTempArchive;
     QString m_activeDestFolder;
     bool m_activeIsFolder = false;
+    QPointer<QProcess> m_activeProcess;
     QElapsedTimer m_speedTimer;
     qint64 m_lastBytesForSpeed = 0;
     qint64 m_lastSpeedTime = 0;

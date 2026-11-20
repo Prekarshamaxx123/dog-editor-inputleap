@@ -145,9 +145,7 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
     setAutoFillBackground(true);
 
     ui_->setupUi(this);
-    setStyleSheet("QMainWindow, QWidget#centralwidget { background-color: rgb(35, 37, 46); }"
-                  "QGroupBox { outline: none; }"
-                  "QGroupBox::indicator:focus { outline: none; }");
+    setStyleSheet("QMainWindow, QWidget#centralwidget { background-color: rgb(35, 37, 46); }");
 
     QPalette pal = palette();
     pal.setColor(QPalette::Window, QColor(35, 37, 46, 255));
@@ -173,7 +171,6 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
 
     m_pFileTransferService = new inputleap::FileTransferService(this);
     m_pFileTransferService->setLocalDeviceName(getScreenName());
-    m_pFileTransferService->startServer(24802);
 
     connect(m_pFileTransferService, &inputleap::FileTransferService::deviceConnected,
             this, &MainWindow::onFileServiceDeviceConnected);
@@ -492,23 +489,6 @@ void MainWindow::checkConnected(const QString& line)
         line.contains("has connected"))
     {
         set_connection_state(AppConnectionState::CONNECTED);
-
-        if (app_role() == AppRole::Client) {
-            QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
-            if (srvIp.isEmpty() && ui_->m_pComboServerList->count() > 0) {
-                srvIp = ui_->m_pComboServerList->currentText().trimmed();
-            }
-            if (srvIp.contains(':')) {
-                srvIp = srvIp.section(':', 0, 0);
-            }
-            if (!srvIp.isEmpty() && m_pFileTransferService) {
-                m_pFileTransferService->connectToDevice(srvIp, 24802);
-            }
-        }
-        if (m_pFileTransferService) {
-            m_pFileTransferService->broadcastDiscovery();
-        }
-        updateFileManagerButton();
 
         if (!appConfig().startedBefore() && isVisible()) {
                 QMessageBox::information(
@@ -877,6 +857,10 @@ void MainWindow::stop_cmd_app()
 
     set_connection_state(AppConnectionState::DISCONNECTED);
 
+    if (m_pFileTransferService) {
+        m_pFileTransferService->stopServer();
+    }
+
     // HACK: deleting the object deletes the physical file, which is
     // bad, since it could be in use by the Windows service!
 #if !defined(Q_OS_WIN)
@@ -983,6 +967,24 @@ void MainWindow::set_connection_state(AppConnectionState state)
 
         setStatus(tr("InputLeap is running."));
 
+        if (m_pFileTransferService) {
+            m_pFileTransferService->setLocalDeviceName(getScreenName());
+            m_pFileTransferService->startServer(24802);
+            if (app_role() == AppRole::Client) {
+                QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
+                if (srvIp.isEmpty() && ui_->m_pComboServerList->count() > 0) {
+                    srvIp = ui_->m_pComboServerList->currentText().trimmed();
+                }
+                if (srvIp.contains(':')) {
+                    srvIp = srvIp.section(':', 0, 0);
+                }
+                if (!srvIp.isEmpty()) {
+                    m_pFileTransferService->connectToDevice(srvIp, 24802);
+                }
+            }
+            m_pFileTransferService->broadcastDiscovery();
+        }
+
         break;
     }
     case AppConnectionState::CONNECTING:
@@ -992,6 +994,9 @@ void MainWindow::set_connection_state(AppConnectionState state)
     case AppConnectionState::DISCONNECTED:
         ui_->m_pLabelPadlock->hide();
         setStatus(tr("InputLeap is not running."));
+        if (m_pFileTransferService) {
+            m_pFileTransferService->stopServer();
+        }
         break;
     case AppConnectionState::TRANSFERRING:
         break;
@@ -1556,6 +1561,12 @@ void MainWindow::updateFileManagerButton()
         return;
     }
 
+    if (connection_state_ != AppConnectionState::CONNECTED) {
+        ui_->m_pButtonFileManager->setVisible(false);
+        adjustSize();
+        return;
+    }
+
     auto devs = m_pFileTransferService->getConnectedDevices();
     if (!devs.isEmpty()) {
         ui_->m_pButtonFileManager->setVisible(true);
@@ -1565,7 +1576,7 @@ void MainWindow::updateFileManagerButton()
         } else {
             ui_->m_pButtonFileManager->setText(QString("File Manager (%1 Devices Connected)").arg(devs.size()));
         }
-    } else if (connection_state_ == AppConnectionState::CONNECTED) {
+    } else {
         if (app_role() == AppRole::Client) {
             QString srvIp = ui_->m_pLineEditHostname->text().trimmed();
             if (srvIp.isEmpty() && ui_->m_pComboServerList->count() > 0) {
@@ -1582,8 +1593,6 @@ void MainWindow::updateFileManagerButton()
         ui_->m_pButtonFileManager->setVisible(true);
         ui_->m_pButtonFileManager->setEnabled(true);
         ui_->m_pButtonFileManager->setText("File Manager (File Share)");
-    } else {
-        ui_->m_pButtonFileManager->setVisible(false);
     }
     adjustSize();
 }

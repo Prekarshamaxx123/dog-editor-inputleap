@@ -856,12 +856,22 @@ void MainWindow::stopDesktop()
 
     appendLogInfo("stopping InputLeap desktop process");
 
-    if (cmd_app_process_->isOpen()) {
+    if (cmd_app_process_->state() != QProcess::NotRunning) {
 #if SYSAPI_UNIX
-        kill(cmd_app_process_->processId(), SIGTERM);
-        cmd_app_process_->waitForFinished(5000);
+        pid_t pid = cmd_app_process_->processId();
+        kill(pid, SIGTERM);
+        if (!cmd_app_process_->waitForFinished(1500)) {
+            appendLogInfo("Process did not exit on SIGTERM within 1.5s, force killing (SIGKILL)...");
+            kill(pid, SIGKILL);
+            cmd_app_process_->waitForFinished(1000);
+        }
+#else
+        cmd_app_process_->terminate();
+        if (!cmd_app_process_->waitForFinished(1500)) {
+            cmd_app_process_->kill();
+            cmd_app_process_->waitForFinished(1000);
+        }
 #endif
-        cmd_app_process_->close();
     }
 
     delete cmd_app_process_;

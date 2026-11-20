@@ -29,6 +29,7 @@
 #include "net/Fwd.h"
 #include "net/NetworkAddress.h"
 #include "base/EventTypes.h"
+#include <atomic>
 
 namespace inputleap {
 
@@ -230,6 +231,8 @@ private:
     std::string m_pendingRemoteFile;
     bool m_pastingPendingRemoteFile = false;
     Thread* m_sendFileThread;
+    std::atomic<bool> m_isFileSending{false};
+    std::string m_currentlySendingFile;
     Thread* m_writeToDropDirThread;
     bool m_useSecureNetwork;
     ClientArgs m_args;

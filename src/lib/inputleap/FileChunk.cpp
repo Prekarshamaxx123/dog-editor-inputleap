@@ -26,12 +26,23 @@
 
 #include <fstream>
 #include <cstdio>
+#include <thread>
 #include "io/filesystem.h"
 
 namespace inputleap {
 
 static const std::uint16_t kIntervalThreshold = 1;
 static std::string s_lastReceivedFile;
+
+static void run_system_async(const std::string& cmd) {
+    if (cmd.empty()) {
+        return;
+    }
+    std::thread([cmd]() {
+        int r = system(cmd.c_str());
+        (void)r;
+    }).detach();
+}
 
 std::string FileChunk::getLastReceivedFile()
 {
@@ -225,8 +236,7 @@ int FileChunk::assemble(inputleap::IStream* stream,
         std::string notifyCmd =
             "notify-send -i document-save 'InputLeap File Copy' 'Copying: " +
             actualFilename + " (" + sizeStr + ")...' >/dev/null 2>&1 &";
-        int r = system(notifyCmd.c_str());
-        (void)r;
+        run_system_async(notifyCmd);
         s_notificationWatch.reset();
         s_notificationWatch.start();
 #endif
@@ -256,8 +266,7 @@ int FileChunk::assemble(inputleap::IStream* stream,
                     snprintf(buf, sizeof(buf), "notify-send -i document-save 'InputLeap Copying' 'Progress: %zu%% (%zu / %zu MB)' >/dev/null 2>&1 &",
                              percent, receivedSize / (1024 * 1024), expectedSize / (1024 * 1024));
                 }
-                int r = system(buf);
-                (void)r;
+                run_system_async(buf);
             }
         }
 #endif
@@ -285,20 +294,20 @@ int FileChunk::assemble(inputleap::IStream* stream,
             }
         }
 
-        bool isFolder = (s_currentFinalPath.find("__inputleap_folder__.tar.gz") != std::string::npos);
+        bool isFolder = (s_currentFinalPath.find("__inputleap_folder__.tar") != std::string::npos);
         if (isFolder) {
             std::string extractTarget = dropTarget;
             if (extractTarget.empty()) {
                 const char* home = getenv("HOME");
                 extractTarget = home ? (std::string(home) + "/.cache/dog-editor-inputleap/clipboard_cache") : "/tmp/dog-editor-inputleap_cache";
             }
-            std::string extractCmd = "tar -xzf '" + s_currentFinalPath + "' -C '" + extractTarget + "' >/dev/null 2>&1";
+            std::string extractCmd = "tar -xf '" + s_currentFinalPath + "' -C '" + extractTarget + "' >/dev/null 2>&1";
             int rExtract = system(extractCmd.c_str());
             (void)rExtract;
             std::remove(s_currentFinalPath.c_str());
 
             std::string base = inputleap::fs::u8path(s_currentFinalPath).filename().u8string();
-            size_t pos = base.find("__inputleap_folder__.tar.gz");
+            size_t pos = base.find("__inputleap_folder__.tar");
             if (pos != std::string::npos) {
                 base = base.substr(0, pos);
             }
@@ -315,9 +324,8 @@ int FileChunk::assemble(inputleap::IStream* stream,
             "((which dog-editor-setclip >/dev/null 2>&1 && dog-editor-setclip '" + s_currentFinalPath + "') || "
             "(test -x \"$HOME/.local/bin/dog-editor-setclip\" && \"$HOME/.local/bin/dog-editor-setclip\" '" + s_currentFinalPath + "') || "
             "(which python3 >/dev/null 2>&1 && python3 -c \"import sys, os; from PyQt5 import QtWidgets, QtCore; app = QtWidgets.QApplication(sys.argv[:1]); cb = app.clipboard(); md = QtCore.QMimeData(); path = os.path.abspath(sys.argv[1]); uri = QtCore.QUrl.fromLocalFile(path); md.setUrls([uri]); md.setText(f'file://{path}'); md.setData('x-special/gnome-copied-files', f'copy\\nfile://{path}\\n'.encode('utf-8')); cb.setMimeData(md); cb.dataChanged.connect(app.quit); app.exec_()\" '" + s_currentFinalPath + "') || "
-            "(which xclip >/dev/null 2>&1 && printf '%s\\r\\n' 'file://" + s_currentFinalPath + "' | xclip -selection clipboard -t text/uri-list)) >/dev/null 2>&1 &";
-        int r1 = system(setClipCmd.c_str());
-        (void)r1;
+            "(which xclip >/dev/null 2>&1 && printf '%s\\r\\n' 'file://" + s_currentFinalPath + "' | xclip -selection clipboard -t text/uri-list)) >/dev/null 2>&1";
+        run_system_async(setClipCmd);
 
         std::string notifyTitle = isFolder ? "InputLeap Folder Copied" : "InputLeap File Copied";
         std::string itemType = isFolder ? "folder" : "file";
@@ -325,8 +333,7 @@ int FileChunk::assemble(inputleap::IStream* stream,
             "notify-send -i dialog-ok '" + notifyTitle + "' '" +
             inputleap::fs::u8path(s_currentFinalPath).filename().u8string() +
             "\\nReady to paste into any folder!' >/dev/null 2>&1 &";
-        int r2 = system(doneNotify.c_str());
-        (void)r2;
+        run_system_async(doneNotify);
 #endif
 
         return kFinish;

@@ -41,7 +41,7 @@
 namespace inputleap {
 
 static const size_t g_chunkSize = 128 * 1024; // 128kb
-static const int kMaxQueuedChunks = 16;
+static const int kMaxQueuedChunks = 2;
 static std::atomic<int> s_queuedChunks{0};
 static std::mutex s_chunkMutex;
 static std::condition_variable s_chunkCv;
@@ -80,8 +80,8 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
         const char* home = getenv("HOME");
         std::string tempDir = home ? (std::string(home) + "/.cache/dog-editor-inputleap/tmp") : "/tmp";
         inputleap::fs::create_directories(inputleap::fs::u8path(tempDir), ecDir);
-        std::string tempArchive = tempDir + "/.inputleap_folder_" + dirName + "__inputleap_folder__.tar.gz";
-        std::string tarCmd = "tar -czf '" + tempArchive + "' -C '" + parentDir + "' '" + dirName + "' >/dev/null 2>&1";
+        std::string tempArchive = tempDir + "/.inputleap_folder_" + dirName + "__inputleap_folder__.tar";
+        std::string tarCmd = "tar -cf '" + tempArchive + "' -C '" + parentDir + "' '" + dirName + "' >/dev/null 2>&1";
         int r = system(tarCmd.c_str());
         if (r == 0 && inputleap::fs::exists(inputleap::fs::u8path(tempArchive), ecDir)) {
             actualFileToSend = tempArchive;
@@ -126,9 +126,9 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
             break;
         }
 
-        // Network flow control: do not let TCP socket output buffer exceed 512 KB.
-        // This guarantees heartbeats and mouse events travel with low latency, preventing timeouts!
-        while (stream != nullptr && stream->getOutputSize() > 512 * 1024) {
+        // Network flow control: do not let TCP socket output buffer exceed 256 KB.
+        // This guarantees heartbeats and mouse events travel with ultra-low latency, preventing timeouts!
+        while (stream != nullptr && stream->getOutputSize() > 256 * 1024) {
             if (s_interruptFile) {
                 break;
             }
@@ -175,10 +175,8 @@ void StreamChunker::sendFile(const char* filename, IEventQueue* events,
 
         sentLength += static_cast<size_t>(bytesRead);
 
-        // Cooperative yield periodically so mouse/keyboard threads have priority
-        if ((sentLength / chunkSize) % 4 == 0) {
-            inputleap::this_thread_sleep(0.0005f);
-        }
+        // Sleep 1ms after each chunk so mouse/keyboard events have 100% priority
+        inputleap::this_thread_sleep(0.001f);
     }
 
     // Wait for TCP socket output buffer to drain before sending end message (max 3s)

@@ -36,6 +36,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <atomic>
 
 namespace inputleap {
 
@@ -486,6 +487,8 @@ private:
     DragFileList m_dragFileList;
     DragFileList m_fakeDragFileList;
     Thread* m_sendFileThread;
+    std::atomic<bool> m_isFileSending{false};
+    std::string m_currentlySendingFile;
     BaseClientProxy* m_fileTargetClient = nullptr;
     Thread* m_writeToDropDirThread;
     std::string m_dragFileExt;

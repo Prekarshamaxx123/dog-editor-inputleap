@@ -103,6 +103,14 @@ Client::~Client()
     m_events->remove_handler(EventType::SCREEN_SUSPEND, get_event_target());
     m_events->remove_handler(EventType::SCREEN_RESUME, get_event_target());
 
+    if (m_sendFileThread != nullptr) {
+        StreamChunker::interruptFile();
+        m_sendFileThread->wait(1.5);
+        delete m_sendFileThread;
+        m_sendFileThread = nullptr;
+    }
+    m_isFileSending.store(false);
+
     cleanupTimer();
     cleanupScreen();
     cleanupConnecting();
@@ -279,21 +287,6 @@ Client::setClipboardDirty(ClipboardID, bool)
 void
 Client::keyDown(KeyID id, KeyModifierMask mask, KeyButton button)
 {
-    bool isPasteKey = (mask & KeyModifierControl) && (id == 'v' || id == 'V' || id == 0x0076 || id == 0x0056);
-    if (isPasteKey && !m_pendingRemoteFile.empty()) {
-        if (!m_pastingPendingRemoteFile) {
-            m_pastingPendingRemoteFile = true;
-            LOG_INFO("User pressed Ctrl+V on client for pending remote file \"%s\", requesting from server...", m_pendingRemoteFile.c_str());
-            std::string notify = "notify-send -i document-save 'InputLeap File Paste' 'Downloading \"" + m_pendingRemoteFile + "\"...' >/dev/null 2>&1 &";
-            int r = system(notify.c_str());
-            (void)r;
-            if (m_server != nullptr) {
-                m_server->requestRemoteFile();
-            }
-        }
-        return;
-    }
-
     m_screen->keyDown(id, mask, button);
 }
 
@@ -576,6 +569,14 @@ void
 Client::cleanupConnection()
 {
     if (m_stream != nullptr) {
+        StreamChunker::interruptFile();
+        if (m_sendFileThread != nullptr) {
+            m_sendFileThread->wait(1.5);
+            delete m_sendFileThread;
+            m_sendFileThread = nullptr;
+        }
+        m_isFileSending.store(false);
+
         m_events->remove_handler(EventType::STREAM_INPUT_READY, m_stream->get_event_target());
         m_events->remove_handler(EventType::STREAM_OUTPUT_ERROR, m_stream->get_event_target());
         m_events->remove_handler(EventType::STREAM_INPUT_SHUTDOWN, m_stream->get_event_target());
@@ -871,6 +872,11 @@ Client::sendFileToServer(const char* filename)
         return;
     }
 
+    if (m_isFileSending.load() && m_currentlySendingFile == filename) {
+        LOG_DEBUG("File %s is already being sent, skipping duplicate trigger", filename);
+        return;
+    }
+
     try {
         std::string nameToSend = filename;
         std::error_code ecDir;
@@ -881,7 +887,7 @@ Client::sendFileToServer(const char* filename)
             }
             size_t lastSlash = dirPath.find_last_of("/\\");
             std::string dirName = (lastSlash != std::string::npos) ? dirPath.substr(lastSlash + 1) : dirPath;
-            nameToSend = dirName + "__inputleap_folder__.tar.gz";
+            nameToSend = dirName + "__inputleap_folder__.tar";
         }
 
         DragInformation di;
@@ -896,15 +902,18 @@ Client::sendFileToServer(const char* filename)
 
         if (m_sendFileThread != nullptr) {
             StreamChunker::interruptFile();
-            m_sendFileThread->wait(1.0);
+            m_sendFileThread->wait(1.5);
             delete m_sendFileThread;
             m_sendFileThread = nullptr;
         }
 
+        m_currentlySendingFile = filename;
+        m_isFileSending.store(true);
         std::string fn(filename);
         m_sendFileThread = new Thread([this, fn]() { send_file_thread(fn.c_str()); });
     }
     catch (const std::exception& e) {
+        m_isFileSending.store(false);
         LOG_ERR("Failed sending file to server: %s", e.what());
     }
 }
@@ -919,7 +928,7 @@ void Client::send_file_thread(const char* filename)
         LOG_ERR("failed sending file chunks: %s", error.what());
     }
 
-    m_sendFileThread = nullptr;
+    m_isFileSending.store(false);
 }
 
 void Client::sendDragInfo(std::uint32_t fileCount, std::string& info, size_t size)

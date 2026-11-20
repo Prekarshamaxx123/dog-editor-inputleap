@@ -195,6 +195,14 @@ Server::~Server()
 		return;
 	}
 
+    if (m_sendFileThread != nullptr) {
+        StreamChunker::interruptFile();
+        m_sendFileThread->wait(1.5);
+        delete m_sendFileThread;
+        m_sendFileThread = nullptr;
+    }
+    m_isFileSending.store(false);
+
 	// remove event handlers and timers
     m_events->remove_handler(EventType::KEY_STATE_KEY_DOWN, &input_filter_);
     m_events->remove_handler(EventType::KEY_STATE_KEY_UP, &input_filter_);
@@ -2151,6 +2159,12 @@ Server::removeClient(BaseClientProxy* client)
     if (m_fileTargetClient == client) {
         m_fileTargetClient = nullptr;
         StreamChunker::interruptFile();
+        if (m_sendFileThread != nullptr) {
+            m_sendFileThread->wait(1.5);
+            delete m_sendFileThread;
+            m_sendFileThread = nullptr;
+        }
+        m_isFileSending.store(false);
     }
 
 	return true;
@@ -2327,6 +2341,11 @@ Server::sendFileToClient(const char* filename, BaseClientProxy* targetClient)
         }
         m_fileTargetClient = client;
 
+        if (m_isFileSending.load() && m_currentlySendingFile == filename) {
+            LOG_DEBUG("File %s is already being sent, skipping duplicate trigger", filename);
+            return;
+        }
+
         std::string nameToSend = filename;
         std::error_code ecDir;
         if (inputleap::fs::is_directory(inputleap::fs::u8path(filename), ecDir)) {
@@ -2336,7 +2355,7 @@ Server::sendFileToClient(const char* filename, BaseClientProxy* targetClient)
             }
             size_t lastSlash = dirPath.find_last_of("/\\");
             std::string dirName = (lastSlash != std::string::npos) ? dirPath.substr(lastSlash + 1) : dirPath;
-            nameToSend = dirName + "__inputleap_folder__.tar.gz";
+            nameToSend = dirName + "__inputleap_folder__.tar";
         }
 
         DragInformation di;
@@ -2353,15 +2372,18 @@ Server::sendFileToClient(const char* filename, BaseClientProxy* targetClient)
 
         if (m_sendFileThread != nullptr) {
             StreamChunker::interruptFile();
-            m_sendFileThread->wait(2.0);
+            m_sendFileThread->wait(1.5);
             delete m_sendFileThread;
             m_sendFileThread = nullptr;
         }
 
+        m_currentlySendingFile = filename;
+        m_isFileSending.store(true);
         std::string fn(filename);
         m_sendFileThread = new Thread([this, fn]() { send_file_thread(fn.c_str()); });
     }
     catch (const std::exception& e) {
+        m_isFileSending.store(false);
         LOG_ERR("Failed sending file to client: %s", e.what());
     }
 }
@@ -2377,7 +2399,7 @@ void Server::send_file_thread(const char* filename)
 		LOG_ERR("failed sending file chunks, error: %s", error.what());
 	}
 
-	m_sendFileThread = nullptr;
+    m_isFileSending.store(false);
 }
 
 void Server::dragInfoReceived(std::uint32_t fileNum, std::string content)

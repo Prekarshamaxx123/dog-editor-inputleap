@@ -145,7 +145,9 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
     setAutoFillBackground(true);
 
     ui_->setupUi(this);
-    setStyleSheet("QMainWindow, QWidget#centralwidget { background-color: rgb(35, 37, 46); }");
+    setStyleSheet("QMainWindow, QWidget#centralwidget { background-color: rgb(35, 37, 46); }"
+                  "QGroupBox { outline: none; }"
+                  "QGroupBox::indicator:focus { outline: none; }");
 
     QPalette pal = palette();
     pal.setColor(QPalette::Window, QColor(35, 37, 46, 255));
@@ -153,6 +155,9 @@ MainWindow::MainWindow(QSettings& settings, AppConfig& appConfig) :
     setPalette(pal);
     ui_->centralwidget->setAutoFillBackground(true);
     ui_->centralwidget->setPalette(pal);
+
+    ui_->m_pGroupServer->setFocusPolicy(Qt::NoFocus);
+    ui_->m_pGroupClient->setFocusPolicy(Qt::NoFocus);
 
     setWindowIcon(QIcon(APP_LARGE_ICON));
     createMenuBar();

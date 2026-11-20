@@ -35,6 +35,7 @@ bool FileTransferService::startServer(quint16 port)
 
     m_port = port;
     m_server = new QTcpServer(this);
+    m_server->setProxy(QNetworkProxy::NoProxy);
     connect(m_server, &QTcpServer::newConnection, this, &FileTransferService::onNewConnection);
 
     if (!m_server->listen(QHostAddress::Any, m_port)) {
@@ -44,6 +45,7 @@ bool FileTransferService::startServer(quint16 port)
 
     if (!m_udpSocket) {
         m_udpSocket = new QUdpSocket(this);
+        m_udpSocket->setProxy(QNetworkProxy::NoProxy);
         m_udpSocket->bind(QHostAddress::AnyIPv4, m_udpPort, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint);
         connect(m_udpSocket, &QUdpSocket::readyRead, this, &FileTransferService::onUdpReadyRead);
     }
@@ -53,27 +55,65 @@ bool FileTransferService::startServer(quint16 port)
     return true;
 }
 
+void FileTransferService::cleanupSocket(QTcpSocket* socket)
+{
+    if (!socket) return;
+
+    socket->disconnect();
+
+    QString devName;
+    QString devIp;
+    bool hadDevice = false;
+
+    if (m_devices.contains(socket)) {
+        DeviceInfo dev = m_devices.take(socket);
+        devName = dev.name;
+        devIp = dev.ip;
+        hadDevice = true;
+    }
+    m_incomingBuffers.remove(socket);
+    m_expectedSizes.remove(socket);
+
+    if (m_activeTransferSocket == socket) {
+        cancelTransfer();
+    }
+
+    if (socket->state() != QAbstractSocket::UnconnectedState) {
+        socket->abort();
+    }
+    socket->deleteLater();
+
+    if (hadDevice && !devName.isEmpty()) {
+        emit deviceDisconnected(devName, devIp);
+    }
+}
+
 void FileTransferService::stopServer()
 {
     cancelTransfer();
 
-    for (auto it = m_devices.begin(); it != m_devices.end(); ++it) {
-        if (it.value().socket) {
-            it.value().socket->disconnect(this);
-            it.value().socket->close();
-            it.value().socket->deleteLater();
-        }
-    }
+    QList<QPointer<QTcpSocket>> sockets = m_devices.keys();
     m_devices.clear();
     m_incomingBuffers.clear();
+    m_expectedSizes.clear();
+
+    for (QPointer<QTcpSocket> s : sockets) {
+        if (s) {
+            s->disconnect();
+            s->abort();
+            s->deleteLater();
+        }
+    }
 
     if (m_udpSocket) {
+        m_udpSocket->disconnect();
         m_udpSocket->close();
         m_udpSocket->deleteLater();
         m_udpSocket = nullptr;
     }
 
     if (m_server) {
+        m_server->disconnect();
         m_server->close();
         m_server->deleteLater();
         m_server = nullptr;
@@ -84,6 +124,9 @@ void FileTransferService::onNewConnection()
 {
     while (m_server && m_server->hasPendingConnections()) {
         QTcpSocket* socket = m_server->nextPendingConnection();
+        if (!socket) continue;
+
+        socket->setProxy(QNetworkProxy::NoProxy);
         socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
         socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
 
@@ -106,6 +149,9 @@ void FileTransferService::onNewConnection()
         });
         connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
             onSocketDisconnected(socket);
+        });
+        connect(socket, &QTcpSocket::errorOccurred, this, [this, socket](QAbstractSocket::SocketError err) {
+            onSocketError(err, socket);
         });
         connect(socket, &QTcpSocket::bytesWritten, this, [this](qint64) {
             if (m_isTransferring && m_isSending) {
@@ -134,14 +180,20 @@ void FileTransferService::connectToDevice(const QString& host, quint16 port, con
         cleanHost = cleanHost.mid(7);
     }
 
-    // Check if already connected to this host
-    for (const auto& dev : m_devices) {
-        if (dev.ip == cleanHost && dev.socket && dev.socket->state() == QAbstractSocket::ConnectedState) {
-            return;
+    // Check if already connected or connecting to this host
+    for (auto it = m_devices.begin(); it != m_devices.end(); ++it) {
+        if (it.value().ip == cleanHost && it.value().socket) {
+            auto state = it.value().socket->state();
+            if (state == QAbstractSocket::ConnectedState ||
+                state == QAbstractSocket::ConnectingState ||
+                state == QAbstractSocket::HostLookupState) {
+                return;
+            }
         }
     }
 
     QTcpSocket* socket = new QTcpSocket(this);
+    socket->setProxy(QNetworkProxy::NoProxy);
     socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
 
@@ -155,6 +207,7 @@ void FileTransferService::connectToDevice(const QString& host, quint16 port, con
     m_incomingBuffers[socket] = QByteArray();
 
     connect(socket, &QTcpSocket::connected, this, [this, socket, cleanHost]() {
+        if (!socket) return;
         socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
         socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
         QJsonObject reg;
@@ -172,6 +225,10 @@ void FileTransferService::connectToDevice(const QString& host, quint16 port, con
         onSocketDisconnected(socket);
     });
 
+    connect(socket, &QTcpSocket::errorOccurred, this, [this, socket](QAbstractSocket::SocketError err) {
+        onSocketError(err, socket);
+    });
+
     connect(socket, &QTcpSocket::bytesWritten, this, [this](qint64) {
         if (m_isTransferring && m_isSending) {
             sendNextChunk();
@@ -185,7 +242,7 @@ void FileTransferService::disconnectDevice(const QString& host)
 {
     QTcpSocket* s = getSocketForHost(host);
     if (s) {
-        s->disconnectFromHost();
+        cleanupSocket(s);
     }
 }
 
@@ -210,15 +267,16 @@ QTcpSocket* FileTransferService::getSocketForHost(const QString& host) const
     for (auto it = m_devices.begin(); it != m_devices.end(); ++it) {
         if ((it.value().ip == clean || it.value().name == host) &&
             it.value().socket && it.value().socket->state() == QAbstractSocket::ConnectedState) {
-            return it.value().socket;
+            return it.value().socket.data();
         }
     }
 
-    // If host is empty and we have exactly 1 connected device, return it
-    if (host.isEmpty() && m_devices.size() == 1) {
-        auto it = m_devices.begin();
-        if (it.value().socket && it.value().socket->state() == QAbstractSocket::ConnectedState) {
-            return it.value().socket;
+    // If host is empty and we have connected devices, return the first connected one
+    if (host.isEmpty()) {
+        for (auto it = m_devices.begin(); it != m_devices.end(); ++it) {
+            if (it.value().socket && it.value().socket->state() == QAbstractSocket::ConnectedState) {
+                return it.value().socket.data();
+            }
         }
     }
 
@@ -227,27 +285,24 @@ QTcpSocket* FileTransferService::getSocketForHost(const QString& host) const
 
 void FileTransferService::onSocketDisconnected(QTcpSocket* socket)
 {
-    if (m_devices.contains(socket)) {
-        DeviceInfo dev = m_devices.value(socket);
-        emit deviceDisconnected(dev.name, dev.ip);
-        m_devices.remove(socket);
-    }
-    m_incomingBuffers.remove(socket);
-
-    if (m_activeTransferSocket == socket) {
-        cancelTransfer();
-    }
-
-    socket->deleteLater();
+    cleanupSocket(socket);
 }
 
-void FileTransferService::onSocketError(QAbstractSocket::SocketError, QTcpSocket* socket)
+void FileTransferService::onSocketError(QAbstractSocket::SocketError error, QTcpSocket* socket)
 {
-    qWarning() << "FileTransferService socket error:" << socket->errorString();
+    if (!socket) return;
+    qWarning() << "FileTransferService socket error:" << error << socket->errorString();
+    if (socket->state() != QAbstractSocket::ConnectedState) {
+        cleanupSocket(socket);
+    }
 }
 
 void FileTransferService::onSocketReadyRead(QTcpSocket* socket)
 {
+    if (!socket || !m_devices.contains(socket)) {
+        return;
+    }
+
     QByteArray& buffer = m_incomingBuffers[socket];
     buffer.append(socket->readAll());
 
@@ -346,7 +401,6 @@ void FileTransferService::sendPacket(QTcpSocket* socket, const QJsonObject& json
     out << static_cast<quint32>(block.size() - sizeof(quint32));
 
     socket->write(block);
-    socket->flush();
 }
 
 void FileTransferService::handleRegister(QTcpSocket* socket, const QJsonObject& req)
@@ -581,8 +635,14 @@ void FileTransferService::sendNextChunk()
         return;
     }
 
+    if (m_activeTransferSocket->state() != QAbstractSocket::ConnectedState) {
+        cancelTransfer();
+        return;
+    }
+
     // Flow control: keep socket write buffer below 256 KB
-    while (m_activeTransferSocket->bytesToWrite() < 256 * 1024 && !m_activeFile.atEnd()) {
+    while (m_activeTransferSocket && m_activeTransferSocket->state() == QAbstractSocket::ConnectedState &&
+           m_activeTransferSocket->bytesToWrite() < 256 * 1024 && !m_activeFile.atEnd()) {
         QByteArray chunk = m_activeFile.read(kMaxChunkSize);
         if (chunk.isEmpty()) {
             break;
@@ -769,8 +829,12 @@ void FileTransferService::broadcastDiscovery()
 void FileTransferService::onUdpReadyRead()
 {
     while (m_udpSocket && m_udpSocket->hasPendingDatagrams()) {
+        qint64 dSize = m_udpSocket->pendingDatagramSize();
+        if (dSize <= 0) {
+            break;
+        }
         QByteArray datagram;
-        datagram.resize(m_udpSocket->pendingDatagramSize());
+        datagram.resize(dSize);
         QHostAddress sender;
         quint16 senderPort = 0;
         m_udpSocket->readDatagram(datagram.data(), datagram.size(), &sender, &senderPort);

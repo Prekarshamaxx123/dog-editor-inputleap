@@ -4,6 +4,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QUdpSocket>
+#include <QNetworkProxy>
 #include <QNetworkInterface>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -13,6 +14,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QMap>
+#include <QPointer>
 
 namespace inputleap {
 
@@ -20,7 +22,7 @@ struct DeviceInfo {
     QString name;
     QString ip;
     quint16 port = 24802;
-    QTcpSocket* socket = nullptr;
+    QPointer<QTcpSocket> socket;
 };
 
 class FileTransferService : public QObject {
@@ -66,6 +68,7 @@ private slots:
     void sendNextChunk();
 
 private:
+    void cleanupSocket(QTcpSocket* socket);
     void processPacket(QTcpSocket* socket, const QByteArray& packet);
     void sendPacket(QTcpSocket* socket, const QJsonObject& json, const QByteArray& extraBinary = QByteArray());
 
@@ -81,21 +84,21 @@ private:
     QTcpSocket* getSocketForHost(const QString& host) const;
 
 private:
-    QTcpServer* m_server = nullptr;
-    QUdpSocket* m_udpSocket = nullptr;
+    QPointer<QTcpServer> m_server;
+    QPointer<QUdpSocket> m_udpSocket;
     quint16 m_port = 24802;
     quint16 m_udpPort = 24803;
     QString m_localName;
 
     // Connected peers: key is IP or socket pointer
-    QMap<QTcpSocket*, DeviceInfo> m_devices;
-    QMap<QTcpSocket*, QByteArray> m_incomingBuffers;
-    QMap<QTcpSocket*, quint32> m_expectedSizes;
+    QMap<QPointer<QTcpSocket>, DeviceInfo> m_devices;
+    QMap<QPointer<QTcpSocket>, QByteArray> m_incomingBuffers;
+    QMap<QPointer<QTcpSocket>, quint32> m_expectedSizes;
 
     // Ongoing transfer state
     bool m_isTransferring = false;
     bool m_isSending = false; // true = upload, false = download receive
-    QTcpSocket* m_activeTransferSocket = nullptr;
+    QPointer<QTcpSocket> m_activeTransferSocket;
     QString m_activeFilename;
     qint64 m_totalBytes = 0;
     qint64 m_bytesTransferred = 0;

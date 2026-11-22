@@ -467,6 +467,7 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 
 	// stop waiting to switch
 	stopSwitch();
+	m_switchCooldownTimer.reset();
 
 	// record new position
 	m_x       = x;
@@ -771,7 +772,7 @@ void Server::avoidJumpZone(BaseClientProxy* dst, EDirection dir, std::int32_t& x
 	std::int32_t dx, dy, dw, dh;
 	dst->getShape(dx, dy, dw, dh);
 	float t = mapToFraction(dst, dir, x, y);
-	std::int32_t z = std::max(getJumpZoneSize(dst), 4);
+	std::int32_t z = std::max(getJumpZoneSize(dst), 20);
 
 	// move in far enough to avoid the jump zone.  if entering a side
 	// that doesn't have a neighbor (i.e. an asymmetrical side) then we
@@ -819,6 +820,13 @@ bool Server::isSwitchOkay(BaseClientProxy* newScreen, EDirection dir, std::int32
 		// want to try to switch later.
 		LOG_DEBUG1("no neighbor %s", Config::dirName(dir));
 		stopSwitch();
+		return false;
+	}
+
+	// Ignore screen switches that occur too quickly after the previous switch (within 250ms)
+	// to prevent border jitter and bounce-back oscillation.
+	if (m_switchCooldownTimer.getTime() < 0.25) {
+		LOG_DEBUG1("switch cooldown active (%f < 0.25)", m_switchCooldownTimer.getTime());
 		return false;
 	}
 

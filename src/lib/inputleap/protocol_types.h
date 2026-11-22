@@ -49,7 +49,7 @@ static const std::uint32_t kMaxHelloLength = 1024;
 static const double        kKeepAliveRate = 3.0;
 
 // number of skipped kMsgCKeepAlive messages that indicates a problem
-static const double        kKeepAlivesUntilDeath = 3.0;
+static const double        kKeepAlivesUntilDeath = 10.0;
 
 // obsolete heartbeat stuff
 static const double        kHeartRate = -1.0;

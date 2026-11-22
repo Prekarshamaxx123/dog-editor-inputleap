@@ -458,6 +458,7 @@ private:
     bool m_switchTwoTapEngaged;
     bool m_switchTwoTapArmed;
     std::int32_t m_switchTwoTapZone;
+    Stopwatch m_switchCooldownTimer;
 
     // modifiers needed before switching
     bool m_switchNeedsShift;

@@ -119,6 +119,7 @@ void ServerProxy::handle_data()
         try {
             switch ((this->*m_parser)(code)) {
             case kOkay:
+                resetKeepAliveAlarm();
                 break;
 
             case kUnknown:

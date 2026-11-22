@@ -1608,6 +1608,8 @@ XWindowsScreen::onMouseMove(const XMotionEvent& xmotion)
 			xmotion.y_root - m_yCenter < -s_size ||
 			xmotion.y_root - m_yCenter >  s_size) {
 			warpCursorNoFlush(m_xCenter, m_yCenter);
+			m_xCursor = m_xCenter;
+			m_yCursor = m_yCenter;
 		}
 
 		// send event if mouse moved.  do this after warping

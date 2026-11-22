@@ -136,6 +136,33 @@ void FileTransferService::onNewConnection()
             ip = ip.mid(7);
         }
 
+        // Check if we already have an established connection to this IP
+        bool alreadyConnected = false;
+        QTcpSocket* pendingSocket = nullptr;
+        for (auto it = m_devices.begin(); it != m_devices.end(); ++it) {
+            if (it.value().ip == ip && it.value().socket) {
+                auto state = it.value().socket->state();
+                if (state == QAbstractSocket::ConnectedState) {
+                    alreadyConnected = true;
+                    break;
+                } else if (state == QAbstractSocket::ConnectingState || state == QAbstractSocket::HostLookupState) {
+                    pendingSocket = it.value().socket.data();
+                }
+            }
+        }
+
+        if (alreadyConnected) {
+            qDebug() << "FileTransferService: Rejecting duplicate incoming connection from" << ip;
+            socket->abort();
+            socket->deleteLater();
+            continue;
+        }
+
+        if (pendingSocket) {
+            qDebug() << "FileTransferService: Incoming connection from" << ip << "supersedes pending outgoing socket";
+            cleanupSocket(pendingSocket);
+        }
+
         DeviceInfo dev;
         dev.ip = ip;
         dev.port = socket->peerPort();
@@ -250,9 +277,13 @@ void FileTransferService::disconnectDevice(const QString& host)
 QList<DeviceInfo> FileTransferService::getConnectedDevices() const
 {
     QList<DeviceInfo> list;
+    QSet<QString> seenIps;
     for (const auto& dev : m_devices) {
         if (dev.socket && dev.socket->state() == QAbstractSocket::ConnectedState) {
-            list.append(dev);
+            if (!seenIps.contains(dev.ip)) {
+                seenIps.insert(dev.ip);
+                list.append(dev);
+            }
         }
     }
     return list;
@@ -349,7 +380,20 @@ void FileTransferService::onSocketReadyRead(QTcpSocket* socket)
                 QString name = obj.value("name").toString();
                 if (m_devices.contains(socket)) {
                     m_devices[socket].name = name;
-                    emit deviceConnected(name, m_devices[socket].ip);
+                    QString devIp = m_devices[socket].ip;
+                    for (auto it = m_devices.begin(); it != m_devices.end(); ) {
+                        if (it.key() != socket && it.value().ip == devIp) {
+                            QTcpSocket* dup = it.key().data();
+                            it = m_devices.erase(it);
+                            if (dup) {
+                                dup->abort();
+                                dup->deleteLater();
+                            }
+                        } else {
+                            ++it;
+                        }
+                    }
+                    emit deviceConnected(name, devIp);
                 }
             } else if (cmd == "list_dir") {
                 handleListDir(socket, obj);
@@ -420,7 +464,20 @@ void FileTransferService::handleRegister(QTcpSocket* socket, const QJsonObject& 
     QString name = req.value("name").toString();
     if (m_devices.contains(socket)) {
         m_devices[socket].name = name;
-        emit deviceConnected(name, m_devices[socket].ip);
+        QString devIp = m_devices[socket].ip;
+        for (auto it = m_devices.begin(); it != m_devices.end(); ) {
+            if (it.key() != socket && it.value().ip == devIp) {
+                QTcpSocket* dup = it.key().data();
+                it = m_devices.erase(it);
+                if (dup) {
+                    dup->abort();
+                    dup->deleteLater();
+                }
+            } else {
+                ++it;
+            }
+        }
+        emit deviceConnected(name, devIp);
     }
 
     QJsonObject resp;

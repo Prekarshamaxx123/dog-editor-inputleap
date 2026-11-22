@@ -133,7 +133,12 @@ void FileManagerDialog::refreshDeviceList()
     }
 
     QList<DeviceInfo> devs = m_service->getConnectedDevices();
+    QSet<QString> seenIps;
     for (const auto& dev : devs) {
+        if (seenIps.contains(dev.ip)) {
+            continue;
+        }
+        seenIps.insert(dev.ip);
         QString label = QString("%1 (%2)").arg(dev.name).arg(dev.ip);
         ui->comboDevices->addItem(label, dev.ip);
     }

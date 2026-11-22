@@ -467,6 +467,7 @@ void MainWindow::appendLogRaw(const QString& text)
 #endif
     for (const auto& line : lines) {
         if (!line.isEmpty()) {
+            qDebug().noquote() << "[CORE]" << line;
             m_pLogWindow->appendRaw(line);
             updateFromLogLine(line);
         }

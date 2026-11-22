@@ -1214,6 +1214,13 @@ XWindowsScreen::handle_system_event(const Event& event)
 				cookie->type == GenericEvent &&
 				cookie->extension == xi_opcode) {
 			if (cookie->evtype == XI_RawMotion) {
+				if (!m_isOnScreen) {
+					// While off-screen, pointer is grabbed by m_window and tracked via core
+					// MotionNotify with warp-synchronization. Discard XI_RawMotion to prevent
+					// duplicate events and warp-bounce artifacts.
+					m_impl->XFreeEventData(m_display, cookie);
+					return;
+				}
 				// Get current pointer's position
 				XMotionEvent xmotion;
 				xmotion.type = MotionNotify;

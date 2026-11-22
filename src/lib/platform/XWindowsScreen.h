@@ -197,6 +197,7 @@ private:
 
     // true if mouse has entered the screen
     bool m_isOnScreen;
+    bool m_justLeft;
 
     // screen shape stuff
     std::int32_t m_x, m_y;

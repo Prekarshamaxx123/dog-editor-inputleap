@@ -767,16 +767,11 @@ BaseClientProxy* Server::mapToNeighbor(BaseClientProxy* src, EDirection srcSide,
 void Server::avoidJumpZone(BaseClientProxy* dst, EDirection dir, std::int32_t& x,
                            std::int32_t& y) const
 {
-	// we only need to avoid jump zones on the primary screen
-	if (dst != m_primaryClient) {
-		return;
-	}
-
     const std::string dstName(getName(dst));
 	std::int32_t dx, dy, dw, dh;
 	dst->getShape(dx, dy, dw, dh);
 	float t = mapToFraction(dst, dir, x, y);
-	std::int32_t z = getJumpZoneSize(dst);
+	std::int32_t z = std::max(getJumpZoneSize(dst), 4);
 
 	// move in far enough to avoid the jump zone.  if entering a side
 	// that doesn't have a neighbor (i.e. an asymmetrical side) then we

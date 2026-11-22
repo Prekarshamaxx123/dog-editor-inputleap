@@ -77,6 +77,7 @@ XWindowsScreen::XWindowsScreen(
     m_root(None),
     m_window(None),
     m_isOnScreen(m_isPrimary),
+    m_justLeft(false),
     m_x(0), m_y(0),
     m_w(0), m_h(0),
     m_xCenter(0), m_yCenter(0),
@@ -352,6 +353,7 @@ void XWindowsScreen::leave()
 
 	// now off screen
 	m_isOnScreen = false;
+	m_justLeft = true;
 }
 
 bool
@@ -1555,6 +1557,13 @@ XWindowsScreen::onMouseMove(const XMotionEvent& xmotion)
 {
 	LOG_DEBUG2("event: MotionNotify %d,%d", xmotion.x_root, xmotion.y_root);
 
+	if (m_justLeft) {
+		m_justLeft = false;
+		m_xCursor = xmotion.x_root;
+		m_yCursor = xmotion.y_root;
+		return;
+	}
+
 	// compute motion delta (relative to the last known
 	// mouse position)
 	std::int32_t x = xmotion.x_root - m_xCursor;
@@ -1610,6 +1619,14 @@ XWindowsScreen::onMouseMove(const XMotionEvent& xmotion)
 			warpCursorNoFlush(m_xCenter, m_yCenter);
 			m_xCursor = m_xCenter;
 			m_yCursor = m_yCenter;
+		}
+
+		// Filter out abnormal jump delta (warp glitch / transient query)
+		static const std::int32_t s_maxDelta = 100;
+		if (std::abs(x) > s_maxDelta || std::abs(y) > s_maxDelta) {
+			LOG_DEBUG2("ignoring warp jump delta %+d,%+d on secondary", x, y);
+			x = 0;
+			y = 0;
 		}
 
 		// send event if mouse moved.  do this after warping

@@ -216,6 +216,7 @@ bool ClientProxy1_6::parseHandshakeMessage(const std::uint8_t* code)
 
 bool ClientProxy1_6::parseMessage(const std::uint8_t* code)
 {
+    resetHeartbeatTimer();
     if (memcmp(code, kMsgDFileTransfer, 4) == 0) {
         fileChunkReceived();
         return true;

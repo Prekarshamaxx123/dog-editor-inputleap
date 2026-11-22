@@ -234,52 +234,17 @@ QTextStream& operator<<(QTextStream& outStream, const ServerConfig& config)
 
     outStream << "section: links\n";
 
-    // Count non-null screens
-    int screenCount = 0;
-    int singleServerIdx = -1;
-    int singleClientIdx = -1;
-    for (std::size_t i = 0; i < config.screens().size(); i++) {
-        if (!config.screens()[i].isNull()) {
-            screenCount++;
-            if (config.screens()[i].name() == config.m_ServerName) {
-                singleServerIdx = static_cast<int>(i);
-            } else {
-                singleClientIdx = static_cast<int>(i);
-            }
-        }
-    }
-
     for (std::size_t i = 0; i < config.screens().size(); i++)
         if (!config.screens()[i].isNull())
         {
             outStream << "\t" << config.screens()[i].name() << ":\n";
 
-            bool hasLeft = false;
-            bool hasRight = false;
-
             for (unsigned int j = 0; j < sizeof(neighbourDirs) / sizeof(neighbourDirs[0]); j++)
             {
                 int idx = config.adjacentScreenIndex(static_cast<int>(i),
                                                      neighbourDirs[j].x, neighbourDirs[j].y);
-                if (idx != -1 && !config.screens()[idx].isNull()) {
+                if (idx != -1 && !config.screens()[idx].isNull())
                     outStream << "\t\t" << neighbourDirs[j].name << " = " << config.screens()[idx].name() << "\n";
-                    if (strcmp(neighbourDirs[j].name, "left") == 0) hasLeft = true;
-                    if (strcmp(neighbourDirs[j].name, "right") == 0) hasRight = true;
-                }
-            }
-
-            // If there are exactly 2 screens (server and 1 client), ensure both left and right links
-            // are populated so the mouse can switch regardless of which side the screen was placed on.
-            if (screenCount == 2 && singleServerIdx != -1 && singleClientIdx != -1) {
-                QString otherName = (static_cast<int>(i) == singleServerIdx) 
-                                    ? config.screens()[singleClientIdx].name() 
-                                    : config.screens()[singleServerIdx].name();
-                if (!hasLeft) {
-                    outStream << "\t\tleft = " << otherName << "\n";
-                }
-                if (!hasRight) {
-                    outStream << "\t\tright = " << otherName << "\n";
-                }
             }
         }
 
